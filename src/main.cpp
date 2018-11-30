@@ -237,7 +237,10 @@ volatile unsigned long ul;
 
 		 xSemaphoreTake( xSemaphore, ( TickType_t ) portMAX_DELAY );
 		 trace_printf( "%s\n",pcTaskName );
-		 blinkLeds[1].toggle ();
+		  for (size_t i = 0; i < (sizeof(blinkLeds) / sizeof(blinkLeds[0])); ++i)
+		    {
+		      blinkLeds[i].toggle ();
+		    }
 		/* lets make the sema available */
 		 xSemaphoreGive( xSemaphore);
 
@@ -264,8 +267,10 @@ volatile unsigned long ul;
 		/* lets make the sema un-available */
 		 xSemaphoreTake( xSemaphore, ( TickType_t ) portMAX_DELAY );
 	  	 trace_printf( "%s\n",pcTaskName );
-	  	blinkLeds[3].toggle ();
-		/* lets make the sema available */
+	  	for (size_t i = 0; i < (sizeof(blinkLeds) / sizeof(blinkLeds[0])); ++i)
+		{
+		  blinkLeds[i].toggle ();
+		}		/* lets make the sema available */
 		 xSemaphoreGive( xSemaphore);
 
 		/* Delay for a period. */
