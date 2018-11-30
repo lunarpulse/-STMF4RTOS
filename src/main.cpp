@@ -33,6 +33,10 @@
 
 #include "Timer.h"
 #include "BlinkLed.h"
+#include "FreeRTOS.h"
+#include "task.h"
+#include "semphr.h"
+
 
 // ----------------------------------------------------------------------------
 //
@@ -51,7 +55,7 @@
 // changing the definitions required in system/src/diag/trace_impl.c
 // (currently OS_USE_TRACE_ITM, OS_USE_TRACE_SEMIHOSTING_DEBUG/_STDOUT).
 //
-
+#define mainDELAY_LOOP_COUNT		( 0xfffff )
 // Definitions visible only within this translation unit.
 namespace
 {
@@ -150,11 +154,14 @@ BlinkLed blinkLeds[1] =
 #pragma GCC diagnostic ignored "-Wmissing-declarations"
 #pragma GCC diagnostic ignored "-Wreturn-type"
 
+void vTask1( void *pvParameters );
+void vTask2( void *pvParameters );
+SemaphoreHandle_t xSemaphore = NULL;
 int
 main(int argc, char* argv[])
 {
   // Send a greeting to the trace device (skipped on Release).
-  trace_puts("Hello ARM World!");
+  trace_puts("Light Up!");
 
   // At this stage the system clock should have already been configured
   // at high speed.
@@ -162,6 +169,7 @@ main(int argc, char* argv[])
 
   Timer timer;
   timer.start ();
+
 
   // Perform all necessary initialisations for the LEDs.
   for (size_t i = 0; i < (sizeof(blinkLeds) / sizeof(blinkLeds[0])); ++i)
@@ -189,57 +197,110 @@ main(int argc, char* argv[])
   ++seconds;
   trace_printf ("Second %u\n", seconds);
 
-  if ((sizeof(blinkLeds) / sizeof(blinkLeds[0])) > 1)
-    {
-      // Blink individual LEDs.
-      for (size_t i = 0; i < (sizeof(blinkLeds) / sizeof(blinkLeds[0])); ++i)
-        {
-          blinkLeds[i].turnOn ();
-          timer.sleep (BLINK_ON_TICKS);
 
-          blinkLeds[i].turnOff ();
-          timer.sleep (BLINK_OFF_TICKS);
+	trace_printf("Eclipse-FreeRTOS Project starting \n");
 
-          ++seconds;
-          trace_printf ("Second %u\n", seconds);
-        }
 
-      // Blink binary.
-      while (1)
-        {
-          for (size_t l = 0; l < (sizeof(blinkLeds) / sizeof(blinkLeds[0]));
-              ++l)
-            {
-              blinkLeds[l].toggle ();
-              if (blinkLeds[l].isOn ())
-                {
-                  break;
-                }
-            }
-          timer.sleep (Timer::FREQUENCY_HZ);
+	/* Create one of the two tasks. */
+	xTaskCreate(	vTask1,		/* Pointer to the function that implements the task. */
+					"Task 1",	/* Text name for the task.  This is to facilitate debugging only. */
+					240,		/* Stack depth in words. */
+					NULL,		/* We are not using the task parameter. */
+					1,			/* This task will run at priority 1. */
+					NULL );		/* We are not using the task handle. */
 
-          ++seconds;
-          trace_printf ("Second %u\n", seconds);
-        }
-      // Infinite loop, never return.
-    }
-  else
-    {
-      while (1)
-        {
-          blinkLeds[0].turnOn ();
-          timer.sleep (BLINK_ON_TICKS);
+	/* Create the other task in exactly the same way. */
+	xTaskCreate( vTask2, "Task 2", 240, NULL, 1, NULL );
 
-          blinkLeds[0].turnOff ();
-          timer.sleep (BLINK_OFF_TICKS);
+/* lets create the binary semaphore dynamically */
+	xSemaphore = xSemaphoreCreateBinary();
 
-          ++seconds;
-          trace_printf ("Second %u\n", seconds);
-        }
-      // Infinite loop, never return.
-    }
+	/* lets make the semaphore token available for the first time */
+	xSemaphoreGive( xSemaphore);
+
+	/* Start the scheduler so our tasks start executing. */
+	vTaskStartScheduler();
+
 }
 
+
+void vTask1( void *pvParameters )
+{
+const char *pcTaskName = "Task 1 is running\n";
+volatile unsigned long ul;
+
+	/* As per most tasks, this task is implemented in an infinite loop. */
+	for( ;; )
+	{
+		/* Print out the name of this task. */
+		/* lets make the sema un-available */
+
+		 xSemaphoreTake( xSemaphore, ( TickType_t ) portMAX_DELAY );
+		 trace_printf( "%s\n",pcTaskName );
+		 blinkLeds[0].turnOn ();
+		/* lets make the sema available */
+		 xSemaphoreGive( xSemaphore);
+
+		/* Delay for a period. */
+		for( ul = 0; ul < mainDELAY_LOOP_COUNT; ul++ )
+		{
+			/* This loop is just a very crude delay implementation.  There is
+			nothing to do in here.  Later exercises will replace this crude
+			loop with a proper delay/sleep function. */
+		}
+	}
+}
+/*-----------------------------------------------------------*/
+
+void vTask2( void *pvParameters )
+{
+const char *pcTaskName = "Task 2 is running\n";
+volatile unsigned long ul;
+
+	/* As per most tasks, this task is implemented in an infinite loop. */
+	for( ;; )
+	{
+		/* Print out the name of this task. */
+		/* lets make the sema un-available */
+		 xSemaphoreTake( xSemaphore, ( TickType_t ) portMAX_DELAY );
+	  	 trace_printf( "%s\n",pcTaskName );
+	  	blinkLeds[0].turnOff ();
+		/* lets make the sema available */
+		 xSemaphoreGive( xSemaphore);
+
+		/* Delay for a period. */
+	for( ul = 0; ul < mainDELAY_LOOP_COUNT; ul++ )
+		{
+			/* This loop is just a very crude delay implementation.  There is
+			nothing to do in here.  Later exercises will replace this crude
+			loop with a proper delay/sleep function. */
+		}
+	}
+}
+/*-----------------------------------------------------------*/
+
+void vApplicationMallocFailedHook( void )
+{
+	/* This function will only be called if an API call to create a task, queue
+	or semaphore fails because there is too little heap RAM remaining. */
+	for( ;; );
+}
+/*-----------------------------------------------------------*/
+
+void vApplicationStackOverflowHook( xTaskHandle *pxTask, signed char *pcTaskName )
+{
+	/* This function will only be called if a task overflows its stack.  Note
+	that stack overflow checking does slow down the context switch
+	implementation. */
+	for( ;; );
+}
+/*-----------------------------------------------------------*/
+
+void vApplicationIdleHook( void )
+{
+	/* This example does not use the idle hook to perform any processing. */
+}
+/*-----------------------------------------------------------*/
 #pragma GCC diagnostic pop
 
 // ----------------------------------------------------------------------------

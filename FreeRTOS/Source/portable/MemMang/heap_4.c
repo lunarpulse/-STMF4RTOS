@@ -245,8 +245,7 @@ void *pvReturn = NULL;
 	{
 		if( pvReturn == NULL )
 		{
-			extern void vApplicationMallocFailedHook( void );
-			vApplicationMallocFailedHook();
+			for( ;; );
 		}
 		else
 		{
