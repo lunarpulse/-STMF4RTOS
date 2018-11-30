@@ -185,14 +185,14 @@ main(int argc, char* argv[])
     }
 
   // First second is long.
-  timer.sleep (Timer::FREQUENCY_HZ);
+  //timer.sleep (Timer::FREQUENCY_HZ);
 
   for (size_t i = 0; i < (sizeof(blinkLeds) / sizeof(blinkLeds[0])); ++i)
     {
       blinkLeds[i].turnOff ();
     }
 
-  timer.sleep (BLINK_OFF_TICKS);
+  //timer.sleep (BLINK_OFF_TICKS);
 
   ++seconds;
   trace_printf ("Second %u\n", seconds);
@@ -237,7 +237,7 @@ volatile unsigned long ul;
 
 		 xSemaphoreTake( xSemaphore, ( TickType_t ) portMAX_DELAY );
 		 trace_printf( "%s\n",pcTaskName );
-		 blinkLeds[0].turnOn ();
+		 blinkLeds[1].toggle ();
 		/* lets make the sema available */
 		 xSemaphoreGive( xSemaphore);
 
@@ -264,7 +264,7 @@ volatile unsigned long ul;
 		/* lets make the sema un-available */
 		 xSemaphoreTake( xSemaphore, ( TickType_t ) portMAX_DELAY );
 	  	 trace_printf( "%s\n",pcTaskName );
-	  	blinkLeds[0].turnOff ();
+	  	blinkLeds[3].toggle ();
 		/* lets make the sema available */
 		 xSemaphoreGive( xSemaphore);
 

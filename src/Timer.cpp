@@ -39,7 +39,7 @@ extern "C" void HAL_IncTick(void);
 volatile Timer::ticks_t Timer::ms_delayCount;
 
 // ----------------------------------------------------------------------------
-
+#if 0
 void
 Timer::sleep(ticks_t ticks)
 {
@@ -60,5 +60,5 @@ SysTick_Handler(void)
 #endif
   Timer::tick();
 }
-
+#endif
 // ----------------------------------------------------------------------------
