@@ -149,7 +149,9 @@ header file. */
 #define configASSERT( x ) if( ( x ) == 0 ) { taskDISABLE_INTERRUPTS(); for( ;; ) __asm volatile( "NOP" ); }
 #define INCLUDE_MODULE_TEST 0
 
-
+#if (configUSE_TRACE_FACILITY==1)
+#include "trcRecorder.h"
+#endif
 
 #endif /* FREERTOS_CONFIG_H */
 

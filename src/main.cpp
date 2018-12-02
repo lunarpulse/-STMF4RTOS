@@ -199,7 +199,7 @@ main(int argc, char* argv[])
 
 
 	trace_printf("Eclipse-FreeRTOS Project starting \n");
-
+	vTraceEnable(TRC_START);
 
 	/* Create one of the two tasks. */
 	xTaskCreate(	vTask1,		/* Pointer to the function that implements the task. */
@@ -228,6 +228,7 @@ void vTask1( void *pvParameters )
 {
 const char *pcTaskName = "Task 1 is running\n";
 volatile unsigned long ul;
+static unsigned int val;
 
 	/* As per most tasks, this task is implemented in an infinite loop. */
 	for( ;; )
@@ -237,10 +238,7 @@ volatile unsigned long ul;
 
 		 xSemaphoreTake( xSemaphore, ( TickType_t ) portMAX_DELAY );
 		 trace_printf( "%s\n",pcTaskName );
-		  for (size_t i = 0; i < (sizeof(blinkLeds) / sizeof(blinkLeds[0])); ++i)
-		    {
-		      blinkLeds[i].toggle ();
-		    }
+	      blinkLeds[(++val)%4].toggle ();
 		/* lets make the sema available */
 		 xSemaphoreGive( xSemaphore);
 
@@ -259,6 +257,7 @@ void vTask2( void *pvParameters )
 {
 const char *pcTaskName = "Task 2 is running\n";
 volatile unsigned long ul;
+static unsigned int val;
 
 	/* As per most tasks, this task is implemented in an infinite loop. */
 	for( ;; )
@@ -267,10 +266,8 @@ volatile unsigned long ul;
 		/* lets make the sema un-available */
 		 xSemaphoreTake( xSemaphore, ( TickType_t ) portMAX_DELAY );
 	  	 trace_printf( "%s\n",pcTaskName );
-	  	for (size_t i = 0; i < (sizeof(blinkLeds) / sizeof(blinkLeds[0])); ++i)
-		{
-		  blinkLeds[i].toggle ();
-		}		/* lets make the sema available */
+	      blinkLeds[(++val)%4].toggle ();
+		/* lets make the sema available */
 		 xSemaphoreGive( xSemaphore);
 
 		/* Delay for a period. */
