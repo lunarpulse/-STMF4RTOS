@@ -201,16 +201,19 @@ main(int argc, char* argv[])
 	trace_printf("Eclipse-FreeRTOS Project starting \n");
 	vTraceEnable(TRC_START);
 
+	const char* pcTaskName1 = "Task 1 is running\n";
+	const char* pcTaskName2 = "Task 2 is running\n";
+
 	/* Create one of the two tasks. */
 	xTaskCreate(	vTask1,		/* Pointer to the function that implements the task. */
 					"Task 1",	/* Text name for the task.  This is to facilitate debugging only. */
 					240,		/* Stack depth in words. */
-					NULL,		/* We are not using the task parameter. */
+					(void*)pcTaskName1,		/* We are not using the task parameter. */
 					1,			/* This task will run at priority 1. */
 					NULL );		/* We are not using the task handle. */
 
 	/* Create the other task in exactly the same way. */
-	xTaskCreate( vTask2, "Task 2", 240, NULL, 1, NULL );
+	xTaskCreate( vTask1, "Task 2", 240, (void*)pcTaskName2, 1, NULL );
 
 /* lets create the binary semaphore dynamically */
 	xSemaphore = xSemaphoreCreateBinary();
@@ -226,9 +229,10 @@ main(int argc, char* argv[])
 
 void vTask1( void *pvParameters )
 {
-const char *pcTaskName = "Task 1 is running\n";
+//const char *pcTaskName = "Task 1 is running\n";
 volatile unsigned long ul;
 static unsigned int val;
+char* toSay = (char*)pvParameters;
 
 	/* As per most tasks, this task is implemented in an infinite loop. */
 	for( ;; )
@@ -237,7 +241,7 @@ static unsigned int val;
 		/* lets make the sema un-available */
 
 		 xSemaphoreTake( xSemaphore, ( TickType_t ) portMAX_DELAY );
-		 trace_printf( "%s\n",pcTaskName );
+		 trace_printf( "%s\n",toSay );
 	      blinkLeds[(++val)%4].toggle ();
 		/* lets make the sema available */
 		 xSemaphoreGive( xSemaphore);
