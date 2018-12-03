@@ -145,6 +145,30 @@ BlinkLed blinkLeds[1] =
 
 #endif
 
+/* Dimensions the buffer into which messages destined for stdout are placed. */
+#define mainMAX_MSG_LEN	( 80 )
+
+/* The task that sends messages to the stdio gatekeeper.  Two instances of this
+task are created. */
+static void prvPrintTask( void *pvParameters );
+
+/* The gatekeeper task itself. */
+static void prvStdioGatekeeperTask( void *pvParameters );
+
+/* Define the strings that the tasks and interrupt will print out via the gatekeeper. */
+static char *pcStringsToPrint[] =
+{
+	"Task 1 ****************************************************\n",
+	"Task 2 ----------------------------------------------------\n",
+	"Message printed from the tick hook interrupt ##############\n"
+};
+
+/*-----------------------------------------------------------*/
+
+/* Declare a variable of type xQueueHandle.  This is used to send messages from
+the print tasks to the gatekeeper task. */
+xQueueHandle xPrintQueue;
+
 // ----- main() ---------------------------------------------------------------
 
 // Sample pragmas to cope with warnings. Please note the related line at
@@ -157,6 +181,8 @@ BlinkLed blinkLeds[1] =
 void vTask1( void *pvParameters );
 void vTask2( void *pvParameters );
 extern "C" void vApplicationIdleHook( void );
+extern "C" void vApplicationTickHook( void );
+
 SemaphoreHandle_t xSemaphore = NULL;
 
 const char* pcTaskName2 = "Task 2 is running\n";
@@ -226,10 +252,78 @@ main(int argc, char* argv[])
 	xSemaphoreGive( xSemaphore);
 
 	/* Start the scheduler so our tasks start executing. */
+	//vTaskStartScheduler();
+
+    /* Before a queue is used it must be explicitly created.  The queue is created
+	to hold a maximum of 5 character pointers. */
+    xPrintQueue = xQueueCreate( 5, sizeof( char * ) );
+
+	/* The tasks are going to use a pseudo random delay, seed the random number
+	generator. */
+	srand( 567 );
+
+	/* Check the queue was created successfully. */
+
+	/* Create two instances of the tasks that send messages to the gatekeeper.
+	The	index to the string they attempt to write is passed in as the task
+	parameter (4th parameter to xTaskCreate()).  The tasks are created at
+	different priorities so some pre-emption will occur. */
+
+	/* Create the gatekeeper task.  This is the only task that is permitted
+	to access standard out. */
+	xTaskCreate( prvStdioGatekeeperTask, "Gatekeeper", 240, NULL, 0, NULL );
+
+	/* Start the scheduler so the created tasks start executing. */
 	vTaskStartScheduler();
 
 }
 
+static void prvStdioGatekeeperTask( void *pvParameters )
+{
+char *pcMessageToPrint;
+static char cBuffer[ mainMAX_MSG_LEN ];
+
+	/* This is the only task that is allowed to write to the terminal output.
+	Any other task wanting to write to the output does not access the terminal
+	directly, but instead sends the output to this task.  As only one task
+	writes to standard out there are no mutual exclusion or serialization issues
+	to consider within this task itself. */
+	for( ;; )
+	{
+		/* Wait for a message to arrive. */
+		xQueueReceive( xPrintQueue, &pcMessageToPrint, portMAX_DELAY );
+
+		/* There is no need to check the return	value as the task will block
+		indefinitely and only run again when a message has arrived.  When the
+		next line is executed there will be a message to be output. */
+		sprintf( cBuffer, "%s", pcMessageToPrint );
+		trace_printf( "%s\n",cBuffer );
+
+		/* Now simply go back to wait for the next message. */
+	}
+}
+/*-----------------------------------------------------------*/
+
+void vApplicationTickHook( void )
+{
+static int iCount = 0;
+portBASE_TYPE xHigherPriorityTaskWoken = pdFALSE;
+
+	/* Print out a message every 200 ticks.  The message is not written out
+	directly, but sent to the gatekeeper task. */
+	iCount++;
+	if( iCount >= 200 )
+	{
+		/* In this case the last parameter (xHigherPriorityTaskWoken) is not
+		actually used but must still be supplied. */
+		xQueueSendToFrontFromISR( xPrintQueue, &( pcStringsToPrint[ 2 ] ), &xHigherPriorityTaskWoken );
+
+		/* Reset the count ready to print out the string again in 200 ticks
+		time. */
+		iCount = 0;
+	}
+}
+/*-----------------------------------------------------------*/
 
 void vTask1( void *pvParameters )
 {
@@ -256,9 +350,11 @@ xLastWakeTime = xTaskGetTickCount();
 		/* lets make the sema available */
 		 xSemaphoreGive( xSemaphore);
 		 if(val%4 == 0){
-			 trace_printf( "%s after task2 priority increased by 2\n",pvParameters );
+			 xQueueSendToBack( xPrintQueue, &( pcStringsToPrint[ 0 ] ), 0 );
 
+			 trace_printf( "%s after task2 priority increased by 2\n",pvParameters );
 			 vTaskPrioritySet(xTask2Handle, (uxPiority+2));
+
 		 }else
 		 {
 			 //vTaskDelay(xDelayCustom);
@@ -292,6 +388,9 @@ xLastWakeTime = xTaskGetTickCount();
 
 		 vTaskDelay(8/portTICK_RATE_MS);
 		 if(count> 31) {
+
+			xQueueSendToBack( xPrintQueue, &( pcStringsToPrint[ 1 ] ), 0 );
+
 			trace_printf( "%s for 31 iterations and lower its priority\n", pcTaskName );
 			count = 0;
 			//vTaskDelay(1000/portTICK_RATE_MS);
