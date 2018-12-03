@@ -235,9 +235,13 @@ void vTask1( void *pvParameters )
 //const char *pcTaskName = "Task 1 is running\n";
 static unsigned int val;
 char* toSay = (char*)pvParameters;
-const portTickType xDelayCustom = 500/portTICK_RATE_MS;
+//const portTickType xDelayCustom = 250/portTICK_RATE_MS;
 unsigned portBASE_TYPE uxPiority;
 uxPiority = uxTaskPriorityGet(xTask2Handle);
+
+TickType_t xLastWakeTime;
+const TickType_t xFrequency = 125;
+xLastWakeTime = xTaskGetTickCount();
 
 	/* As per most tasks, this task is implemented in an infinite loop. */
 	for( ;; )
@@ -256,12 +260,8 @@ uxPiority = uxTaskPriorityGet(xTask2Handle);
 			 vTaskPrioritySet(xTask2Handle, (uxPiority+2));
 		 }else
 		 {
-			 volatile int i;
 			 //vTaskDelay(xDelayCustom);
-			 for(i=0 ; i< mainDELAY_LOOP_COUNT;i++)
-			 {
-
-			 }
+			 vTaskDelayUntil(&xLastWakeTime, xFrequency);
 		 }
 	}
 }
@@ -270,10 +270,13 @@ uxPiority = uxTaskPriorityGet(xTask2Handle);
 void vTask2( void *pvParameters )
 {
 const char *pcTaskName = "Task 2 is running\n";
-static unsigned int val = 0;
 unsigned int count = 0;
 unsigned portBASE_TYPE uxPiority;
 uxPiority = uxTaskPriorityGet(NULL);
+
+TickType_t xLastWakeTime;
+const TickType_t xFrequency = 1000;
+xLastWakeTime = xTaskGetTickCount();
 
 	/* As per most tasks, this task is implemented in an infinite loop. */
 	for( ;; )
@@ -285,15 +288,13 @@ uxPiority = uxTaskPriorityGet(NULL);
 	      blinkLeds[(count++)%4].toggle ();
 		/* lets make the sema available */
 		 xSemaphoreGive( xSemaphore);
-		 volatile int i;
-		 for(i=0 ; i< mainDELAY_LOOP_COUNT/256;i++)
-		 {
 
-		 }
-		 //vTaskDelay(2/portTICK_RATE_MS);
+		 vTaskDelay(8/portTICK_RATE_MS);
 		 if(count> 31) {
 			trace_printf( "%s for 31 iterations and lower its priority\n", pcTaskName );
 			count = 0;
+			//vTaskDelay(1000/portTICK_RATE_MS);
+			vTaskDelayUntil(&xLastWakeTime, xFrequency);
 			if(uxPiority>3) vTaskPrioritySet(NULL, (uxPiority-2));
 			else vTaskPrioritySet(NULL, 1);
 		 }
