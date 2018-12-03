@@ -154,9 +154,25 @@ BlinkLed blinkLeds[1] =
 #pragma GCC diagnostic ignored "-Wmissing-declarations"
 #pragma GCC diagnostic ignored "-Wreturn-type"
 
+void xQueueSenderTask(void *pvParameters);
+void xQueueRecieverTask(void *pvParameters);
+
 void vTask1( void *pvParameters );
 void vTask2( void *pvParameters );
 SemaphoreHandle_t xSemaphore = NULL;
+const unsigned int QUEUE_LENGTH = 5;
+const unsigned int ITEM_SIZE = sizeof (long);
+static char * pcStringsToPrint[] =
+{
+	"***************************Red*************************\n",
+	"---------------------------Green-----------------------\n",
+	"###########################Blue########################\n",
+	"$$$$$$$$$$$$$$$$$$$$$$$$$$$Orange$$$$$$$$$$$$$$$$$$$$$$\n"
+};
+
+#define mainMAX_MSG_LEN	( 80 )
+
+QueueHandle_t xQueue = NULL;
 int
 main(int argc, char* argv[])
 {
@@ -201,28 +217,78 @@ main(int argc, char* argv[])
 	trace_printf("Eclipse-FreeRTOS Project starting \n");
 	vTraceEnable(TRC_START);
 
+	xQueue = xQueueCreate( QUEUE_LENGTH, // The number of items the queue can hold.
+							ITEM_SIZE); // The size of each item in the queue);
+	if(xQueue != NULL){
+		xTaskCreate( xQueueSenderTask, "TaskSendR", 240, ( void * ) 0, 1, NULL );
+		xTaskCreate( xQueueSenderTask, "TaskSendG", 240, ( void * ) 1, 1, NULL );
+		xTaskCreate( xQueueSenderTask, "TaskSendB", 240, ( void * ) 2, 1, NULL );
+		xTaskCreate( xQueueSenderTask, "TaskSendO", 240, ( void * ) 3, 1, NULL );
+
+		xTaskCreate( xQueueRecieverTask, "TaskRecieve", 240, NULL, 2, NULL );
+
+		vTaskStartScheduler();
+
+	}
+
 	/* Create one of the two tasks. */
-	xTaskCreate(	vTask1,		/* Pointer to the function that implements the task. */
-					"Task 1",	/* Text name for the task.  This is to facilitate debugging only. */
-					240,		/* Stack depth in words. */
-					NULL,		/* We are not using the task parameter. */
-					1,			/* This task will run at priority 1. */
-					NULL );		/* We are not using the task handle. */
+	//xTaskCreate(	vTask1,		/* Pointer to the function that implements the task. */
+	//				"Task 1",	/* Text name for the task.  This is to facilitate debugging only. */
+	//				240,		/* Stack depth in words. */
+	//				NULL,		/* We are not using the task parameter. */
+	//				1,			/* This task will run at priority 1. */
+	//				NULL );		/* We are not using the task handle. */
 
 	/* Create the other task in exactly the same way. */
-	xTaskCreate( vTask2, "Task 2", 240, NULL, 1, NULL );
+	//xTaskCreate( vTask2, "Task 2", 240, NULL, 1, NULL );
 
 /* lets create the binary semaphore dynamically */
-	xSemaphore = xSemaphoreCreateBinary();
+	//xSemaphore = xSemaphoreCreateBinary();
 
 	/* lets make the semaphore token available for the first time */
-	xSemaphoreGive( xSemaphore);
+	//xSemaphoreGive( xSemaphore);
 
 	/* Start the scheduler so our tasks start executing. */
-	vTaskStartScheduler();
+	//vTaskStartScheduler();
 
 }
 
+void xQueueRecieverTask(void *pvParameters){
+	unsigned long lRecievedVal;
+	portBASE_TYPE xStatus;
+	static char cBuffer[ mainMAX_MSG_LEN ];
+	const portTickType xTicksToWait = 100/portTICK_RATE_MS;
+	for(;;){
+
+		xStatus = xQueueReceive( xQueue, &lRecievedVal, xTicksToWait );
+
+		if(xStatus == pdPASS){
+			sprintf( cBuffer, "%s", pcStringsToPrint[ lRecievedVal ] );
+			trace_printf( "%s\n",cBuffer );
+
+			blinkLeds[lRecievedVal].toggle ();
+		}
+		else{
+			trace_printf( "Could not recieve data from queue \n" );
+
+		}
+	}
+}
+void xQueueSenderTask(void *pvParameters){
+	unsigned long lValSend;
+	portBASE_TYPE xStatus;
+
+	lValSend = (unsigned long) (pvParameters);
+	for( ;; )
+	{
+		xStatus = xQueueSendToFront( xQueue, ( void * ) &lValSend, ( TickType_t ) 0 );
+		if(xStatus != pdPASS){
+			trace_printf( "Not sending value %d\r\n",lValSend );
+		}
+
+		taskYIELD();
+	}
+}
 
 void vTask1( void *pvParameters )
 {
