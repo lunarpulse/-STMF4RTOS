@@ -157,6 +157,10 @@ BlinkLed blinkLeds[1] =
 void vTask1( void *pvParameters );
 void vTask2( void *pvParameters );
 SemaphoreHandle_t xSemaphore = NULL;
+
+const char* pcTaskName2 = "Task 2 is running\n";
+xTaskHandle xTask2Handle;
+
 int
 main(int argc, char* argv[])
 {
@@ -169,7 +173,6 @@ main(int argc, char* argv[])
 
   Timer timer;
   timer.start ();
-
 
   // Perform all necessary initialisations for the LEDs.
   for (size_t i = 0; i < (sizeof(blinkLeds) / sizeof(blinkLeds[0])); ++i)
@@ -208,10 +211,11 @@ main(int argc, char* argv[])
 					"Task 1",	/* Text name for the task.  This is to facilitate debugging only. */
 					240,		/* Stack depth in words. */
 					(void*)pcTaskName1,		/* We are not using the task parameter. */
-					1,			/* This task will run at priority 1. */
+					2,			/* This task will run at priority 1. */
 					NULL );		/* We are not using the task handle. */
 
 	/* Create the other task in exactly the same way. */
+	xTaskCreate( vTask2, "Task 2", 240, (void*)pcTaskName2, 1, &xTask2Handle );
 
 
 /* lets create the binary semaphore dynamically */
@@ -225,15 +229,16 @@ main(int argc, char* argv[])
 
 }
 
-const char* pcTaskName2 = "Task 2 is running\n";
-xTaskHandle xTask2Handle;
 
 void vTask1( void *pvParameters )
 {
 //const char *pcTaskName = "Task 1 is running\n";
 static unsigned int val;
 char* toSay = (char*)pvParameters;
-const portTickType xDelayCustom = 125/portTICK_RATE_MS;
+const portTickType xDelayCustom = 500/portTICK_RATE_MS;
+unsigned portBASE_TYPE uxPiority;
+uxPiority = uxTaskPriorityGet(xTask2Handle);
+
 	/* As per most tasks, this task is implemented in an infinite loop. */
 	for( ;; )
 	{
@@ -245,12 +250,19 @@ const portTickType xDelayCustom = 125/portTICK_RATE_MS;
 	      blinkLeds[(++val)%4].toggle ();
 		/* lets make the sema available */
 		 xSemaphoreGive( xSemaphore);
+		 if(val%4 == 0){
+			 trace_printf( "%s after task2 priority increased by 2\n",pvParameters );
 
-		 xTaskCreate( vTask2, "Task 2", 240, (void*)pcTaskName2, 2, &xTask2Handle );
+			 vTaskPrioritySet(xTask2Handle, (uxPiority+2));
+		 }else
+		 {
+			 volatile int i;
+			 //vTaskDelay(xDelayCustom);
+			 for(i=0 ; i< mainDELAY_LOOP_COUNT;i++)
+			 {
 
-		 trace_printf( "%s after task2 deleted\n",pvParameters );
-
-		 vTaskDelay(xDelayCustom);
+			 }
+		 }
 	}
 }
 /*-----------------------------------------------------------*/
@@ -260,6 +272,9 @@ void vTask2( void *pvParameters )
 const char *pcTaskName = "Task 2 is running\n";
 static unsigned int val = 0;
 unsigned int count = 0;
+unsigned portBASE_TYPE uxPiority;
+uxPiority = uxTaskPriorityGet(NULL);
+
 	/* As per most tasks, this task is implemented in an infinite loop. */
 	for( ;; )
 	{
@@ -267,17 +282,23 @@ unsigned int count = 0;
 		/* lets make the sema un-available */
 		 xSemaphoreTake( xSemaphore, ( TickType_t ) portMAX_DELAY );
 	  	 trace_printf( "%s\n",pcTaskName );
-	      blinkLeds[(++val)%4].toggle ();
-	      count++;
+	      blinkLeds[(count++)%4].toggle ();
 		/* lets make the sema available */
 		 xSemaphoreGive( xSemaphore);
+		 volatile int i;
+		 for(i=0 ; i< mainDELAY_LOOP_COUNT/256;i++)
+		 {
 
-		 vTaskDelay(2/portTICK_RATE_MS);
-		 if(count> 31) break;
+		 }
+		 //vTaskDelay(2/portTICK_RATE_MS);
+		 if(count> 31) {
+			trace_printf( "%s for 31 iterations and lower its priority\n", pcTaskName );
+			count = 0;
+			if(uxPiority>3) vTaskPrioritySet(NULL, (uxPiority-2));
+			else vTaskPrioritySet(NULL, 1);
+		 }
 	}
-	trace_printf( "%s for 10 iterations and deleting\n",pcTaskName );
-	count = 0;
-	vTaskDelete(NULL);
+
 }
 /*-----------------------------------------------------------*/
 
