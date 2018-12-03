@@ -154,20 +154,34 @@ BlinkLed blinkLeds[1] =
 #pragma GCC diagnostic ignored "-Wmissing-declarations"
 #pragma GCC diagnostic ignored "-Wreturn-type"
 
-void xQueueSenderTask(void *pvParameters);
-void xQueueRecieverTask(void *pvParameters);
-
 void vTask1( void *pvParameters );
 void vTask2( void *pvParameters );
 SemaphoreHandle_t xSemaphore = NULL;
-const unsigned int QUEUE_LENGTH = 5;
-const unsigned int ITEM_SIZE = sizeof (long);
-static char * pcStringsToPrint[] =
+
+#define TEMP_CODE			0
+#define DISP_CODE			1
+#define IMU_CODE			2
+#define OTHER_CODE          3
+#define MAX_LEN				10
+#define MAX_QUEUE           4
+/* vGenSenderHandler is a task function which takes care of putting data in to the queue. vGenReceiverHandler is task function which takes care of getting data from the queue */
+static void vGenSenderHandler( void *pvParameters );
+static void vGenReceiverHandler( void *pvParameters );
+
+/* Define the structure type that will be passed on the queue. */
+typedef struct
 {
-	"***************************Red*************************\n",
-	"---------------------------Green-----------------------\n",
-	"###########################Blue########################\n",
-	"$$$$$$$$$$$$$$$$$$$$$$$$$$$Orange$$$$$$$$$$$$$$$$$$$$$$\n"
+	unsigned char code;
+	int data[MAX_LEN];
+} xData;
+
+/* Declare 3 variables of type xData that will be passed on the queue. */
+static const xData xStructsToSend[ 4 ] =
+{
+	{ TEMP_CODE, 33,22 }, /* Used by temp monitoring task. */
+	{ DISP_CODE, 64,-32,10 }, /* Used by display monitoring task. */
+	{ IMU_CODE, 45, 25, 125 },
+	{ OTHER_CODE, 2017,2016 }  /* Used by other task. */
 };
 
 #define mainMAX_MSG_LEN	( 80 )
@@ -217,76 +231,142 @@ main(int argc, char* argv[])
 	trace_printf("Eclipse-FreeRTOS Project starting \n");
 	vTraceEnable(TRC_START);
 
-	xQueue = xQueueCreate( QUEUE_LENGTH, // The number of items the queue can hold.
-							ITEM_SIZE); // The size of each item in the queue);
-	if(xQueue != NULL){
-		xTaskCreate( xQueueSenderTask, "TaskSendR", 240, ( void * ) 0, 1, NULL );
-		xTaskCreate( xQueueSenderTask, "TaskSendG", 240, ( void * ) 1, 1, NULL );
-		xTaskCreate( xQueueSenderTask, "TaskSendB", 240, ( void * ) 2, 1, NULL );
-		xTaskCreate( xQueueSenderTask, "TaskSendO", 240, ( void * ) 3, 1, NULL );
+    /* The queue is created to hold a maximum of 3 structures of type xData. */
+    xQueue = xQueueCreate( MAX_QUEUE, sizeof( xData ) );
 
-		xTaskCreate( xQueueRecieverTask, "TaskRecieve", 240, NULL, 2, NULL );
+	if( xQueue != NULL )
+	{
+		/* Create 3 instances of the task that will write to the queue.  The
+		parameter is used to pass the structure that the task should write to the
+		queue, all 3 sender tasks are created at priority 2 which is above the priority of the receiver. */
+		xTaskCreate( vGenSenderHandler, "Temp-task", 240, ( void * ) &( xStructsToSend[ 0 ] ), 2, NULL );
 
+		xTaskCreate( vGenSenderHandler, "Disp-task", 240, ( void * ) &( xStructsToSend[ 1 ] ), 2, NULL );
+
+		xTaskCreate( vGenSenderHandler, "IMU-task", 240, ( void * ) &( xStructsToSend[ 2 ] ), 2, NULL );
+
+		xTaskCreate( vGenSenderHandler, "Other-task", 240, ( void * ) &( xStructsToSend[ 3 ] ), 2, NULL );
+
+		/* Create the task that will read from the queue.  The task is created with
+		priority 1, so below the priority of the sender tasks. */
+		xTaskCreate( vGenReceiverHandler, "Receive-task", 240, NULL, 1, NULL );
+
+		/* Start the scheduler so the created tasks start executing. */
 		vTaskStartScheduler();
-
 	}
-
-	/* Create one of the two tasks. */
-	//xTaskCreate(	vTask1,		/* Pointer to the function that implements the task. */
-	//				"Task 1",	/* Text name for the task.  This is to facilitate debugging only. */
-	//				240,		/* Stack depth in words. */
-	//				NULL,		/* We are not using the task parameter. */
-	//				1,			/* This task will run at priority 1. */
-	//				NULL );		/* We are not using the task handle. */
-
-	/* Create the other task in exactly the same way. */
-	//xTaskCreate( vTask2, "Task 2", 240, NULL, 1, NULL );
-
-/* lets create the binary semaphore dynamically */
-	//xSemaphore = xSemaphoreCreateBinary();
-
-	/* lets make the semaphore token available for the first time */
-	//xSemaphoreGive( xSemaphore);
-
-	/* Start the scheduler so our tasks start executing. */
-	//vTaskStartScheduler();
-
-}
-
-void xQueueRecieverTask(void *pvParameters){
-	unsigned long lRecievedVal;
-	portBASE_TYPE xStatus;
-	static char cBuffer[ mainMAX_MSG_LEN ];
-	const portTickType xTicksToWait = 100/portTICK_RATE_MS;
-	for(;;){
-
-		xStatus = xQueueReceive( xQueue, &lRecievedVal, xTicksToWait );
-
-		if(xStatus == pdPASS){
-			sprintf( cBuffer, "%s", pcStringsToPrint[ lRecievedVal ] );
-			trace_printf( "%s\n",cBuffer );
-
-			blinkLeds[lRecievedVal].toggle ();
-		}
-		else{
-			trace_printf( "Could not recieve data from queue \n" );
-
-		}
+	else
+	{
+		/* The queue could not be created. */
 	}
 }
-void xQueueSenderTask(void *pvParameters){
-	unsigned long lValSend;
-	portBASE_TYPE xStatus;
 
-	lValSend = (unsigned long) (pvParameters);
+static void vGenSenderHandler( void *pvParameters )
+{
+portBASE_TYPE xStatus;
+const portTickType xTicksToWait = 1000 / portTICK_RATE_MS;
+
+	/* As per most tasks, this task is implemented within an infinite loop. */
 	for( ;; )
 	{
-		xStatus = xQueueSendToFront( xQueue, ( void * ) &lValSend, ( TickType_t ) 0 );
-		if(xStatus != pdPASS){
-			trace_printf( "Not sending value %d\r\n",lValSend );
+		/* The first parameter is the queue to which data is being sent.  The
+		queue was created before the scheduler was started, so before this task
+		started to execute.
+
+		The second parameter is the address of the structure being sent.  The
+		address is passed in as the task parameter.
+
+		The third parameter is the Block time - the time the task should be kept
+		in the Blocked state to wait for space to become available on the queue
+		should the queue already be full.  A block time is specified as the queue
+		will become full.  Items will only be removed from the queue when both
+		sending tasks are in the Blocked state.. */
+		blinkLeds[((xData*)pvParameters)->code].toggle ();
+		xStatus = xQueueSendToBack( xQueue, pvParameters, xTicksToWait );
+
+
+		if( xStatus != pdPASS )
+		{
+			/* We could not write to the queue because it was full - this must
+			be an error as the receiving task should make space in the queue
+			as soon as both sending tasks are in the Blocked state. */
+			trace_printf( "Could not send to the queue.\n" );
+		}else
+		{
+			trace_printf("Sender: data sent \n");
 		}
 
+		/* Allow the other sender task to execute. */
 		taskYIELD();
+	}
+}
+/*-----------------------------------------------------------*/
+
+static void vGenReceiverHandler( void *pvParameters )
+{
+/* Declare the structure that will hold the values received from the queue. */
+xData xReceivedStructure;
+portBASE_TYPE xStatus;
+const portTickType xTicksToWait = 250 / portTICK_RATE_MS;
+
+	/* This task is also defined within an infinite loop. */
+	for( ;; )
+	{
+		/* As this task only runs when the sending tasks are in the Blocked state,
+		and the sending tasks only block when the queue is full, this task should
+		always find the queue to be full.  3 is the queue length. */
+		if( uxQueueMessagesWaiting( xQueue ) == MAX_QUEUE )
+		{
+			trace_printf( "Queue should have been full!\n" );
+		}
+
+		/* The first parameter is the queue from which data is to be received.  The
+		queue is created before the scheduler is started, and therefore before this
+		task runs for the first time.
+
+		The second parameter is the buffer into which the received data will be
+		placed.  In this case the buffer is simply the address of a variable that
+		has the required size to hold the received structure.
+
+		The last parameter is the block time - the maximum amount of time that the
+		task should remain in the Blocked state to wait for data to be available
+		should the queue already be empty.  A block time is not necessary as this
+		task will only run when the queue is full so data will always be available. */
+		xStatus = xQueueReceive( xQueue, &xReceivedStructure, 0 );
+
+		if( xStatus == pdPASS )
+		{
+			blinkLeds[xReceivedStructure.code].toggle ();
+
+			/* Data was successfully received from the queue, print out the received
+			value and the source of the value. */
+			if( xReceivedStructure.code == TEMP_CODE )
+			{
+				trace_printf( "Data From Temp-task = %d,%d \n", xReceivedStructure.data[0],xReceivedStructure.data[1] );
+			}
+			else if (xReceivedStructure.code == DISP_CODE)
+			{
+				trace_printf( "Data From disp-task = %d,%d,%d \n", xReceivedStructure.data[0],xReceivedStructure.data[1], xReceivedStructure.data[2]);
+			}
+			else if (xReceivedStructure.code == IMU_CODE)
+			{
+				trace_printf( "Data From IMU-task = %d,%d,%d\n", xReceivedStructure.data[0],xReceivedStructure.data[1], xReceivedStructure.data[2]);
+			}
+			else if (xReceivedStructure.code == OTHER_CODE)
+			{
+				trace_printf( "Data From other-task = %d,%d \n", xReceivedStructure.data[0],xReceivedStructure.data[1] );
+			}else
+			{
+				trace_printf( "in-valid code \n");
+			}
+
+			vTaskDelay(xTicksToWait);
+		}
+		else
+		{
+			/* We did not receive anything from the queue.  This must be an error
+			as this task should only run when the queue is full. */
+			trace_printf( "Could not receive from the queue.\n" );
+		}
 	}
 }
 
