@@ -202,7 +202,6 @@ main(int argc, char* argv[])
 	vTraceEnable(TRC_START);
 
 	const char* pcTaskName1 = "Task 1 is running\n";
-	const char* pcTaskName2 = "Task 2 is running\n";
 
 	/* Create one of the two tasks. */
 	xTaskCreate(	vTask1,		/* Pointer to the function that implements the task. */
@@ -213,7 +212,7 @@ main(int argc, char* argv[])
 					NULL );		/* We are not using the task handle. */
 
 	/* Create the other task in exactly the same way. */
-	xTaskCreate( vTask1, "Task 2", 240, (void*)pcTaskName2, 1, NULL );
+
 
 /* lets create the binary semaphore dynamically */
 	xSemaphore = xSemaphoreCreateBinary();
@@ -226,14 +225,15 @@ main(int argc, char* argv[])
 
 }
 
+const char* pcTaskName2 = "Task 2 is running\n";
+xTaskHandle xTask2Handle;
 
 void vTask1( void *pvParameters )
 {
 //const char *pcTaskName = "Task 1 is running\n";
-volatile unsigned long ul;
 static unsigned int val;
 char* toSay = (char*)pvParameters;
-
+const portTickType xDelayCustom = 125/portTICK_RATE_MS;
 	/* As per most tasks, this task is implemented in an infinite loop. */
 	for( ;; )
 	{
@@ -246,13 +246,11 @@ char* toSay = (char*)pvParameters;
 		/* lets make the sema available */
 		 xSemaphoreGive( xSemaphore);
 
-		/* Delay for a period. */
-		for( ul = 0; ul < mainDELAY_LOOP_COUNT; ul++ )
-		{
-			/* This loop is just a very crude delay implementation.  There is
-			nothing to do in here.  Later exercises will replace this crude
-			loop with a proper delay/sleep function. */
-		}
+		 xTaskCreate( vTask2, "Task 2", 240, (void*)pcTaskName2, 2, &xTask2Handle );
+
+		 trace_printf( "%s after task2 deleted\n",pvParameters );
+
+		 vTaskDelay(xDelayCustom);
 	}
 }
 /*-----------------------------------------------------------*/
@@ -260,9 +258,8 @@ char* toSay = (char*)pvParameters;
 void vTask2( void *pvParameters )
 {
 const char *pcTaskName = "Task 2 is running\n";
-volatile unsigned long ul;
-static unsigned int val;
-
+static unsigned int val = 0;
+unsigned int count = 0;
 	/* As per most tasks, this task is implemented in an infinite loop. */
 	for( ;; )
 	{
@@ -271,17 +268,16 @@ static unsigned int val;
 		 xSemaphoreTake( xSemaphore, ( TickType_t ) portMAX_DELAY );
 	  	 trace_printf( "%s\n",pcTaskName );
 	      blinkLeds[(++val)%4].toggle ();
+	      count++;
 		/* lets make the sema available */
 		 xSemaphoreGive( xSemaphore);
 
-		/* Delay for a period. */
-	for( ul = 0; ul < mainDELAY_LOOP_COUNT; ul++ )
-		{
-			/* This loop is just a very crude delay implementation.  There is
-			nothing to do in here.  Later exercises will replace this crude
-			loop with a proper delay/sleep function. */
-		}
+		 vTaskDelay(2/portTICK_RATE_MS);
+		 if(count> 31) break;
 	}
+	trace_printf( "%s for 10 iterations and deleting\n",pcTaskName );
+	count = 0;
+	vTaskDelete(NULL);
 }
 /*-----------------------------------------------------------*/
 
