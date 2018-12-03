@@ -156,11 +156,12 @@ BlinkLed blinkLeds[1] =
 
 void vTask1( void *pvParameters );
 void vTask2( void *pvParameters );
+extern "C" void vApplicationIdleHook( void );
 SemaphoreHandle_t xSemaphore = NULL;
 
 const char* pcTaskName2 = "Task 2 is running\n";
 xTaskHandle xTask2Handle;
-
+static volatile unsigned long ulIdleCount = 0UL;
 int
 main(int argc, char* argv[])
 {
@@ -250,7 +251,7 @@ xLastWakeTime = xTaskGetTickCount();
 		/* lets make the sema un-available */
 
 		 xSemaphoreTake( xSemaphore, ( TickType_t ) portMAX_DELAY );
-		 trace_printf( "%s\n",toSay );
+		 trace_printf( "%s, at idle count: %d\n",toSay ,ulIdleCount);
 	      blinkLeds[(++val)%4].toggle ();
 		/* lets make the sema available */
 		 xSemaphoreGive( xSemaphore);
@@ -284,7 +285,7 @@ xLastWakeTime = xTaskGetTickCount();
 		/* Print out the name of this task. */
 		/* lets make the sema un-available */
 		 xSemaphoreTake( xSemaphore, ( TickType_t ) portMAX_DELAY );
-	  	 trace_printf( "%s\n",pcTaskName );
+	  	 trace_printf( "%s, at idle count: %d\n",pcTaskName ,ulIdleCount );
 	      blinkLeds[(count++)%4].toggle ();
 		/* lets make the sema available */
 		 xSemaphoreGive( xSemaphore);
@@ -322,7 +323,10 @@ void vApplicationStackOverflowHook( xTaskHandle *pxTask, signed char *pcTaskName
 
 void vApplicationIdleHook( void )
 {
-	/* This example does not use the idle hook to perform any processing. */
+	ulIdleCount++;
+#if 1
+	HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI);
+#endif
 }
 /*-----------------------------------------------------------*/
 #pragma GCC diagnostic pop
