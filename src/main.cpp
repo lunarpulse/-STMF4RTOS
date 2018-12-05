@@ -85,7 +85,7 @@ BlinkLed blinkLeds[1] =
 
 #elif defined(STM32F407xx)
 
-#warning "Assume a STM32F4-Discovery board, PD12-PD15, active high."
+//#warning "Assume a STM32F4-Discovery board, PD12-PD15, active high."
 
 #define BLINK_PORT_NUMBER         (3)
 #define BLINK_PIN_NUMBER_GREEN    (12)
@@ -154,6 +154,12 @@ BlinkLed blinkLeds[1] =
 #pragma GCC diagnostic ignored "-Wmissing-declarations"
 #pragma GCC diagnostic ignored "-Wreturn-type"
 
+/* Declare a variable of type xSemaphoreHandle.  This is used to reference the
+semaphore that is used to synchronize bothe manager and employee task */
+xSemaphoreHandle xBinarySemaphore;
+/* this is the queue manager uses to put the work ticket id */
+xQueueHandle xWorkQueue;
+
 void vTask1( void *pvParameters );
 void vTask2( void *pvParameters );
 SemaphoreHandle_t xSemaphore = NULL;
@@ -170,84 +176,96 @@ main(int argc, char* argv[])
   Timer timer;
   timer.start ();
 
-
   // Perform all necessary initialisations for the LEDs.
   for (size_t i = 0; i < (sizeof(blinkLeds) / sizeof(blinkLeds[0])); ++i)
     {
       blinkLeds[i].powerUp ();
     }
 
-  uint32_t seconds = 0;
-
   for (size_t i = 0; i < (sizeof(blinkLeds) / sizeof(blinkLeds[0])); ++i)
     {
       blinkLeds[i].turnOn ();
     }
-
-  // First second is long.
-  //timer.sleep (Timer::FREQUENCY_HZ);
 
   for (size_t i = 0; i < (sizeof(blinkLeds) / sizeof(blinkLeds[0])); ++i)
     {
       blinkLeds[i].turnOff ();
     }
 
-  //timer.sleep (BLINK_OFF_TICKS);
-
-  ++seconds;
-  trace_printf ("Second %u\n", seconds);
-
-
-	trace_printf("Eclipse-FreeRTOS Project starting \n");
 	vTraceEnable(TRC_START);
 
-	/* Create one of the two tasks. */
-	xTaskCreate(	vTask1,		/* Pointer to the function that implements the task. */
-					"Task 1",	/* Text name for the task.  This is to facilitate debugging only. */
-					240,		/* Stack depth in words. */
-					NULL,		/* We are not using the task parameter. */
-					1,			/* This task will run at priority 1. */
-					NULL );		/* We are not using the task handle. */
+   /* Before a semaphore is used it must be explicitly created.  In this example a binary semaphore is created. */
+	vSemaphoreCreateBinary( xBinarySemaphore );
 
-	/* Create the other task in exactly the same way. */
-	xTaskCreate( vTask2, "Task 2", 240, NULL, 1, NULL );
-
-/* lets create the binary semaphore dynamically */
+	/* lets create the binary semaphore dynamically */
 	xSemaphore = xSemaphoreCreateBinary();
 
 	/* lets make the semaphore token available for the first time */
 	xSemaphoreGive( xSemaphore);
 
-	/* Start the scheduler so our tasks start executing. */
-	vTaskStartScheduler();
+	/* The queue is created to hold a maximum of 1 Element. */
+	xWorkQueue = xQueueCreate( 1, sizeof( unsigned int ) );
 
+	/* The tasks are going to use a pseudo random delay, seed the random number generator. */
+	srand( 789 );
+
+    /* Check the semaphore and queue was created successfully. */
+    if( (xBinarySemaphore != NULL) && (xWorkQueue != NULL) )
+    {
+		/* Create one of the two tasks. */
+		xTaskCreate(	vTask1,		/* Pointer to the function that implements the task. */
+						"Manager",	/* Text name for the task.  This is to facilitate debugging only. */
+						240,		/* Stack depth in words. */
+						NULL,		/* We are not using the task parameter. */
+						3,			/* This task will run at priority 1. */
+						NULL );		/* We are not using the task handle. */
+
+		/* Create the other task in exactly the same way. */
+		xTaskCreate( vTask2, "Employee", 240, NULL, 1, NULL );
+
+		/* Start the scheduler so our tasks start executing. */
+		vTaskStartScheduler();
+    }
+    for(;;);
 }
-
 
 void vTask1( void *pvParameters )
 {
-const char *pcTaskName = "Task 1 is running\n";
-volatile unsigned long ul;
+const char *pcTaskName = "Task 1 is sending";
 static unsigned int val;
 
+unsigned int xWorkTicketId;
+portBASE_TYPE xStatus;
+
+xSemaphoreGive( xBinarySemaphore);
 	/* As per most tasks, this task is implemented in an infinite loop. */
 	for( ;; )
 	{
-		/* Print out the name of this task. */
-		/* lets make the sema un-available */
+		/* get a work ticket id */
+		xWorkTicketId = ( rand() & 0x1FF );
 
-		 xSemaphoreTake( xSemaphore, ( TickType_t ) portMAX_DELAY );
-		 trace_printf( "%s\n",pcTaskName );
-	      blinkLeds[(++val)%4].toggle ();
-		/* lets make the sema available */
-		 xSemaphoreGive( xSemaphore);
+		/* Sends work ticket id to the work queue */
+		xStatus = xQueueSend( xWorkQueue, &xWorkTicketId , portMAX_DELAY );
 
-		/* Delay for a period. */
-		for( ul = 0; ul < mainDELAY_LOOP_COUNT; ul++ )
+		if( xStatus != pdPASS )
 		{
-			/* This loop is just a very crude delay implementation.  There is
-			nothing to do in here.  Later exercises will replace this crude
-			loop with a proper delay/sleep function. */
+			trace_printf( "Could not send to the queue.\n" );
+
+		}else
+		{
+
+			/* Manager notifying the employee by "Giving" semaphore */
+			xSemaphoreGive( xBinarySemaphore);
+			/* after assigning the work , just yield the processor because nothing to do */
+			 xSemaphoreTake( xSemaphore, ( TickType_t ) portMAX_DELAY );
+			 trace_printf( "%s: %d\n",pcTaskName, xWorkTicketId );
+			  blinkLeds[(++val)%4].toggle ();
+			/* lets make the sema available */
+			 xSemaphoreGive( xSemaphore);
+
+			vTaskDelay(100/portTICK_RATE_MS);
+
+			taskYIELD();
 		}
 	}
 }
@@ -255,28 +273,38 @@ static unsigned int val;
 
 void vTask2( void *pvParameters )
 {
-const char *pcTaskName = "Task 2 is running\n";
-volatile unsigned long ul;
+const char *pcTaskName = "Task 2 is working on";
 static unsigned int val;
+
+unsigned char xWorkTicketId;
+portBASE_TYPE xStatus;
 
 	/* As per most tasks, this task is implemented in an infinite loop. */
 	for( ;; )
 	{
-		/* Print out the name of this task. */
-		/* lets make the sema un-available */
-		 xSemaphoreTake( xSemaphore, ( TickType_t ) portMAX_DELAY );
-	  	 trace_printf( "%s\n",pcTaskName );
-	      blinkLeds[(++val)%4].toggle ();
-		/* lets make the sema available */
-		 xSemaphoreGive( xSemaphore);
+		/* First Employee tries to take the semaphore, if it is available that means there is a task assigned by manager, otherwise employee task will be blocked */
+		xSemaphoreTake( xBinarySemaphore, 0 );
+		vTaskDelay(100/portTICK_RATE_MS);
 
-		/* Delay for a period. */
-	for( ul = 0; ul < mainDELAY_LOOP_COUNT; ul++ )
+		/*if we are here means, Semaphore take successfull. So, get the ticket id from the work queue */
+		xStatus = xQueueReceive( xWorkQueue, &xWorkTicketId, 0 );
+
+		if( xStatus == pdPASS )
 		{
-			/* This loop is just a very crude delay implementation.  There is
-			nothing to do in here.  Later exercises will replace this crude
-			loop with a proper delay/sleep function. */
+			/* lets make the sema un-available */
+			 xSemaphoreTake( xSemaphore, ( TickType_t ) portMAX_DELAY );
+			  blinkLeds[(++val)%4].toggle ();
+			/* lets make the sema available */
+			 xSemaphoreGive( xSemaphore);
+			 trace_printf( "%s: %d\n",pcTaskName, xWorkTicketId );
+
 		}
+		else
+		{
+			/* We did not receive anything from the queue.  This must be an error as this task should only run when the manager assigns at least one work. */
+			trace_printf( "Error getting the xWorkTicketId from queue\n" );
+		}
+
 	}
 }
 /*-----------------------------------------------------------*/
