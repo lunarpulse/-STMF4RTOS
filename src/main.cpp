@@ -37,7 +37,6 @@
 #include "task.h"
 #include "semphr.h"
 
-
 // ----------------------------------------------------------------------------
 //
 // Standalone STM32F4 led blink sample (trace via DEBUG).
@@ -156,12 +155,32 @@ BlinkLed blinkLeds[1] =
 
 /* Declare a variable of type xSemaphoreHandle.  This is used to reference the
 semaphore that is used to synchronize bothe manager and employee task */
+
+/* The interrupt number to use for the software interrupt generation.  This
+could be any unused number.  In this case the first chip level (non system)
+interrupt is used, which happens to be the watchdog on the LPC1768. */
+#define mainSW_INTERRUPT_ID		( ( IRQn_Type ) WWDG_IRQn )
+#define mainSOFTWARE_INTERRUPT_PRIORITY 		( 10 )
+/* Macro to force an interrupt. */
+#define mainTRIGGER_INTERRUPT()	NVIC_SetPendingIRQ( mainSW_INTERRUPT_ID )
+
+/* Macro to clear the same interrupt. */
+#define mainCLEAR_INTERRUPT()	NVIC_ClearPendingIRQ( mainSW_INTERRUPT_ID )
+
 xSemaphoreHandle xBinarySemaphore;
+xSemaphoreHandle xBinarySemaphoreWWDG;
 /* this is the queue manager uses to put the work ticket id */
 xQueueHandle xWorkQueue;
+extern "C" void EXTI0_IRQHandler(void);
+static void EXTILine0_Config(void);
+extern "C" void WWDG_IRQHandler( void );
+static void prvSetupSoftwareInterrupt();
 
+void vTask0( void *pvParameters );
 void vTask1( void *pvParameters );
 void vTask2( void *pvParameters );
+void vTask3( void *pvParameters );
+
 SemaphoreHandle_t xSemaphore = NULL;
 int
 main(int argc, char* argv[])
@@ -191,37 +210,31 @@ main(int argc, char* argv[])
     {
       blinkLeds[i].turnOff ();
     }
+  prvSetupSoftwareInterrupt();
+  EXTILine0_Config();
 
+    //prvSetupSoftwareInterrupt();
 	vTraceEnable(TRC_START);
 
    /* Before a semaphore is used it must be explicitly created.  In this example a binary semaphore is created. */
 	vSemaphoreCreateBinary( xBinarySemaphore );
-
-	/* lets create the binary semaphore dynamically */
-	xSemaphore = xSemaphoreCreateBinary();
-
-	/* lets make the semaphore token available for the first time */
-	xSemaphoreGive( xSemaphore);
-
-	/* The queue is created to hold a maximum of 1 Element. */
-	xWorkQueue = xQueueCreate( 1, sizeof( unsigned int ) );
-
-	/* The tasks are going to use a pseudo random delay, seed the random number generator. */
-	srand( 789 );
+	vSemaphoreCreateBinary( xBinarySemaphoreWWDG );
 
     /* Check the semaphore and queue was created successfully. */
-    if( (xBinarySemaphore != NULL) && (xWorkQueue != NULL) )
+    if( xBinarySemaphore != NULL)
     {
 		/* Create one of the two tasks. */
 		xTaskCreate(	vTask1,		/* Pointer to the function that implements the task. */
-						"Manager",	/* Text name for the task.  This is to facilitate debugging only. */
+						"EXTI-Handler",	/* Text name for the task.  This is to facilitate debugging only. */
 						240,		/* Stack depth in words. */
 						NULL,		/* We are not using the task parameter. */
 						3,			/* This task will run at priority 1. */
 						NULL );		/* We are not using the task handle. */
 
 		/* Create the other task in exactly the same way. */
-		xTaskCreate( vTask2, "Employee", 240, NULL, 1, NULL );
+		xTaskCreate( vTask2, "Periodic-EXTI-EventMaker", 240, NULL, 1, NULL );
+		xTaskCreate( vTask0, "WWDG-EventMaker", 240, NULL, 1, NULL );
+		xTaskCreate( vTask3, "WWDG-Handler", 240, NULL, 3, NULL );
 
 		/* Start the scheduler so our tasks start executing. */
 		vTaskStartScheduler();
@@ -229,85 +242,175 @@ main(int argc, char* argv[])
     for(;;);
 }
 
-void vTask1( void *pvParameters )
+void vTask0( void *pvParameters )
 {
-const char *pcTaskName = "Task 1 is sending";
+const char *pcTaskName = "Task 0 is Evoking WWDG Event";
 static unsigned int val;
 
-unsigned int xWorkTicketId;
-portBASE_TYPE xStatus;
 
-xSemaphoreGive( xBinarySemaphore);
+xSemaphoreTake( xBinarySemaphoreWWDG, 0 );
+
 	/* As per most tasks, this task is implemented in an infinite loop. */
 	for( ;; )
 	{
-		/* get a work ticket id */
-		xWorkTicketId = ( rand() & 0x1FF );
+		 trace_printf( "%s: Initiated\n",pcTaskName );
 
-		/* Sends work ticket id to the work queue */
-		xStatus = xQueueSend( xWorkQueue, &xWorkTicketId , portMAX_DELAY );
+		 mainTRIGGER_INTERRUPT();
 
-		if( xStatus != pdPASS )
-		{
-			trace_printf( "Could not send to the queue.\n" );
-
-		}else
-		{
-
-			/* Manager notifying the employee by "Giving" semaphore */
-			xSemaphoreGive( xBinarySemaphore);
-			/* after assigning the work , just yield the processor because nothing to do */
-			 xSemaphoreTake( xSemaphore, ( TickType_t ) portMAX_DELAY );
-			 trace_printf( "%s: %d\n",pcTaskName, xWorkTicketId );
-			  blinkLeds[(++val)%4].toggle ();
-			/* lets make the sema available */
-			 xSemaphoreGive( xSemaphore);
-
-			vTaskDelay(100/portTICK_RATE_MS);
-
-			taskYIELD();
-		}
+		 trace_printf( "%s: Finished\n",pcTaskName );
+		vTaskDelay( 125 / portTICK_RATE_MS );
+		blinkLeds[(++val)%4].toggle ();
 	}
 }
 /*-----------------------------------------------------------*/
+
+
+void vTask1( void *pvParameters )
+{
+const char *pcTaskName = "Task 1 is processing EXTI Handler";
+static unsigned int val= 2;
+
+
+xSemaphoreTake( xBinarySemaphore, 0 );
+
+	/* As per most tasks, this task is implemented in an infinite loop. */
+	for( ;; )
+	{
+		/* Use the semaphore to wait for the event.  The task blocks
+		indefinitely meaning this function call will only return once the
+		semaphore has been successfully obtained - so there is no need to check
+		the returned value. */
+
+		xSemaphoreTake( xBinarySemaphore, portMAX_DELAY );
+		trace_printf( "%s \n",pcTaskName );
+		blinkLeds[(val)%4].toggle ();
+	}
+}
 
 void vTask2( void *pvParameters )
 {
-const char *pcTaskName = "Task 2 is working on";
-static unsigned int val;
+const char *pcTaskName = "Task 2 is Evoking EXTI Event";
+static unsigned int val= 2;
 
-unsigned char xWorkTicketId;
-portBASE_TYPE xStatus;
 
 	/* As per most tasks, this task is implemented in an infinite loop. */
 	for( ;; )
 	{
-		/* First Employee tries to take the semaphore, if it is available that means there is a task assigned by manager, otherwise employee task will be blocked */
-		xSemaphoreTake( xBinarySemaphore, 0 );
-		vTaskDelay(100/portTICK_RATE_MS);
+		 trace_printf( "%s: Initiated\n",pcTaskName );
+		 blinkLeds[(val)%4].toggle ();
 
-		/*if we are here means, Semaphore take successfull. So, get the ticket id from the work queue */
-		xStatus = xQueueReceive( xWorkQueue, &xWorkTicketId, 0 );
+		 EXTI->SWIER |=  ((uint32_t)0x00001);
 
-		if( xStatus == pdPASS )
-		{
-			/* lets make the sema un-available */
-			 xSemaphoreTake( xSemaphore, ( TickType_t ) portMAX_DELAY );
-			  blinkLeds[(++val)%4].toggle ();
-			/* lets make the sema available */
-			 xSemaphoreGive( xSemaphore);
-			 trace_printf( "%s: %d\n",pcTaskName, xWorkTicketId );
-
-		}
-		else
-		{
-			/* We did not receive anything from the queue.  This must be an error as this task should only run when the manager assigns at least one work. */
-			trace_printf( "Error getting the xWorkTicketId from queue\n" );
-		}
-
+		 trace_printf( "%s: Finished\n",pcTaskName );
+		 vTaskDelay( 250 / portTICK_RATE_MS );
 	}
 }
+
+
+void vTask3( void *pvParameters )
+{
+	const char *pcTaskName = "Task 3 is Handling WWDG Event";
+	static unsigned int val;
+
+
+	xSemaphoreTake( xBinarySemaphore, 0 );
+
+	/* As per most tasks, this task is implemented in an infinite loop. */
+	for( ;; )
+	{
+		/* Use the semaphore to wait for the event.  The task blocks
+		indefinitely meaning this function call will only return once the
+		semaphore has been successfully obtained - so there is no need to check
+		the returned value. */
+
+		xSemaphoreTake( xBinarySemaphoreWWDG, portMAX_DELAY );
+		trace_printf( "%s \n",pcTaskName );
+		blinkLeds[(++val)%4].toggle ();
+	}
+}
+
 /*-----------------------------------------------------------*/
+
+static void EXTILine0_Config(void)
+{
+  GPIO_InitTypeDef   GPIO_InitStructure;
+
+  /* Enable GPIOA clock */
+  __HAL_RCC_GPIOA_CLK_ENABLE();
+
+  /* Configure PA0 pin as input floating */
+  GPIO_InitStructure.Mode = GPIO_MODE_IT_FALLING;
+  GPIO_InitStructure.Pull = GPIO_NOPULL;
+  GPIO_InitStructure.Pin = GPIO_PIN_0;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStructure);
+
+
+	/* Enable and set EXTI Line0 Interrupt to the lowest priority */
+	NVIC_SetPriority(EXTI0_IRQn, mainSOFTWARE_INTERRUPT_PRIORITY );
+	/* Enable the interrupt. */
+	NVIC_EnableIRQ( EXTI0_IRQn );
+}
+
+void EXTI0_IRQHandler(void)
+{
+	portBASE_TYPE xHigherPriorityTaskWoken = pdFALSE;
+
+	/* 'Give' the semaphore to unblock the task. */
+	xSemaphoreGiveFromISR( xBinarySemaphore, &xHigherPriorityTaskWoken );
+
+	/* Clear the software interrupt bit using the interrupt controllers
+	Clear Pending register. */
+	//mainCLEAR_INTERRUPT();
+	EXTI->PR = ((uint32_t)0x00001);
+
+	/* Giving the semaphore may have unblocked a task - if it did and the
+	unblocked task has a priority equal to or above the currently executing
+	task then xHigherPriorityTaskWoken will have been set to pdTRUE and
+	portEND_SWITCHING_ISR() will force a context switch to the newly unblocked
+	higher priority task.
+
+	NOTE: The syntax for forcing a context switch within an ISR varies between
+	FreeRTOS ports.  The portEND_SWITCHING_ISR() macro is provided as part of
+	the Cortex M3 port layer for this purpose.  taskYIELD() must never be called
+	from an ISR! */
+	portEND_SWITCHING_ISR( xHigherPriorityTaskWoken );
+
+}
+
+static void prvSetupSoftwareInterrupt()
+{
+	/* The interrupt service routine uses an (interrupt safe) FreeRTOS API
+	function so the interrupt priority must be at or below the priority defined
+	by configSYSCALL_INTERRUPT_PRIORITY. */
+	NVIC_SetPriority( mainSW_INTERRUPT_ID, mainSOFTWARE_INTERRUPT_PRIORITY );
+	/* Enable the interrupt. */
+	NVIC_EnableIRQ( mainSW_INTERRUPT_ID );
+}
+/*-----------------------------------------------------------*/
+
+void WWDG_IRQHandler( void )
+{
+	portBASE_TYPE xHigherPriorityTaskWoken = pdFALSE;
+
+    /* 'Give' the semaphore to unblock the task. */
+    xSemaphoreGiveFromISR( xBinarySemaphoreWWDG, &xHigherPriorityTaskWoken );
+
+    /* Clear the software interrupt bit using the interrupt controllers
+    Clear Pending register. */
+    mainCLEAR_INTERRUPT();
+
+    /* Giving the semaphore may have unblocked a task - if it did and the
+    unblocked task has a priority equal to or above the currently executing
+    task then xHigherPriorityTaskWoken will have been set to pdTRUE and
+    portEND_SWITCHING_ISR() will force a context switch to the newly unblocked
+    higher priority task.
+
+    NOTE: The syntax for forcing a context switch within an ISR varies between
+    FreeRTOS ports.  The portEND_SWITCHING_ISR() macro is provided as part of
+    the Cortex M3 port layer for this purpose.  taskYIELD() must never be called
+    from an ISR! */
+    portEND_SWITCHING_ISR( xHigherPriorityTaskWoken );
+}
 
 void vApplicationMallocFailedHook( void )
 {
