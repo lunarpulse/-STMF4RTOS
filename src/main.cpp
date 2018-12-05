@@ -256,7 +256,7 @@ const char *pcTaskNameCopy= pcTaskName;
 	{
 		/* Print out the name of this task. */
 		/* lets make the sema un-available */
-		 //xSemaphoreTake( xSemaphore, ( TickType_t ) portMAX_DELAY );
+		 xSemaphoreTake( xSemaphore, ( TickType_t ) portMAX_DELAY );
 
 		for(int i = 0 ; i< 8 ;i ++){
 			pcTaskName=pcTaskNameCopy;
@@ -267,13 +267,13 @@ const char *pcTaskNameCopy= pcTaskName;
 					}
 		}
 
-		 trace_printf( "%s\n",pcTaskName );
-	    //  blinkLeds[(++val)%4].toggle ();
+		 //trace_printf( "%s\n",pcTaskName );
+	    blinkLeds[(++val)%4].toggle ();
 		/* lets make the sema available */
-		 //xSemaphoreGive( xSemaphore);
+	    xSemaphoreGive( xSemaphore);
 
 		/* Delay for a period. */
-	      vTaskDelay(100/portTICK_RATE_MS);
+	    vTaskDelay(100/portTICK_RATE_MS);
 	}
 }
 /*-----------------------------------------------------------*/
@@ -288,7 +288,7 @@ const char *pcTaskNameCopy= pcTaskName;
 	/* As per most tasks, this task is implemented in an infinite loop. */
 	for( ;; )
 	{
-		//xSemaphoreTake( xSemaphore, ( TickType_t ) portMAX_DELAY );
+		xSemaphoreTake( xSemaphore, ( TickType_t ) portMAX_DELAY );
 
 
 		for(int i = 0 ; i< 8 ;i ++){
@@ -302,13 +302,13 @@ const char *pcTaskNameCopy= pcTaskName;
 
 		/* Print out the name of this task. */
 		/* lets make the sema un-available */
-	  	 trace_printf( "%s\n",pcTaskName );
-	    //  blinkLeds[(++val)%4].toggle ();
+	  	//trace_printf( "%s\n",pcTaskName );
+	    blinkLeds[(++val)%4].toggle ();
 		/* lets make the sema available */
-		 //xSemaphoreGive( xSemaphore);
+		xSemaphoreGive( xSemaphore);
 
 		/* Delay for a period. */
-	      vTaskDelay(100/portTICK_RATE_MS);
+	    vTaskDelay(100/portTICK_RATE_MS);
 	}
 }
 /*-----------------------------------------------------------*/
