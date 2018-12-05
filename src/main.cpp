@@ -167,8 +167,8 @@ interrupt is used, which happens to be the watchdog on the LPC1768. */
 /* Macro to clear the same interrupt. */
 #define mainCLEAR_INTERRUPT()	NVIC_ClearPendingIRQ( mainSW_INTERRUPT_ID )
 
-xSemaphoreHandle xBinarySemaphore;
-xSemaphoreHandle xBinarySemaphoreWWDG;
+xSemaphoreHandle xCountingSemaphoreEXTI;
+xSemaphoreHandle xCountingSemaphoreWWDG;
 /* this is the queue manager uses to put the work ticket id */
 xQueueHandle xWorkQueue;
 extern "C" void EXTI0_IRQHandler(void);
@@ -217,11 +217,11 @@ main(int argc, char* argv[])
 	vTraceEnable(TRC_START);
 
    /* Before a semaphore is used it must be explicitly created.  In this example a binary semaphore is created. */
-	vSemaphoreCreateBinary( xBinarySemaphore );
-	vSemaphoreCreateBinary( xBinarySemaphoreWWDG );
+	xCountingSemaphoreEXTI = xSemaphoreCreateCounting( 6, 0 );
+	xCountingSemaphoreWWDG = xSemaphoreCreateCounting( 8, 0 );
 
     /* Check the semaphore and queue was created successfully. */
-    if( xBinarySemaphore != NULL)
+    if( xCountingSemaphoreEXTI != NULL)
     {
 		/* Create one of the two tasks. */
 		xTaskCreate(	vTask1,		/* Pointer to the function that implements the task. */
@@ -230,11 +230,11 @@ main(int argc, char* argv[])
 						NULL,		/* We are not using the task parameter. */
 						3,			/* This task will run at priority 1. */
 						NULL );		/* We are not using the task handle. */
+		xTaskCreate( vTask3, "WWDG-Handler", 240, NULL, 3, NULL );
 
 		/* Create the other task in exactly the same way. */
 		xTaskCreate( vTask2, "Periodic-EXTI-EventMaker", 240, NULL, 1, NULL );
 		xTaskCreate( vTask0, "WWDG-EventMaker", 240, NULL, 1, NULL );
-		xTaskCreate( vTask3, "WWDG-Handler", 240, NULL, 3, NULL );
 
 		/* Start the scheduler so our tasks start executing. */
 		vTaskStartScheduler();
@@ -248,7 +248,7 @@ const char *pcTaskName = "Task 0 is Evoking WWDG Event";
 static unsigned int val;
 
 
-xSemaphoreTake( xBinarySemaphoreWWDG, 0 );
+xSemaphoreTake( xCountingSemaphoreWWDG, 0 );
 
 	/* As per most tasks, this task is implemented in an infinite loop. */
 	for( ;; )
@@ -271,7 +271,7 @@ const char *pcTaskName = "Task 1 is processing EXTI Handler";
 static unsigned int val= 2;
 
 
-xSemaphoreTake( xBinarySemaphore, 0 );
+xSemaphoreTake( xCountingSemaphoreEXTI, 0 );
 
 	/* As per most tasks, this task is implemented in an infinite loop. */
 	for( ;; )
@@ -281,7 +281,7 @@ xSemaphoreTake( xBinarySemaphore, 0 );
 		semaphore has been successfully obtained - so there is no need to check
 		the returned value. */
 
-		xSemaphoreTake( xBinarySemaphore, portMAX_DELAY );
+		xSemaphoreTake( xCountingSemaphoreEXTI, portMAX_DELAY );
 		trace_printf( "%s \n",pcTaskName );
 		blinkLeds[(val)%4].toggle ();
 	}
@@ -313,7 +313,7 @@ void vTask3( void *pvParameters )
 	static unsigned int val;
 
 
-	xSemaphoreTake( xBinarySemaphore, 0 );
+	xSemaphoreTake( xCountingSemaphoreEXTI, 0 );
 
 	/* As per most tasks, this task is implemented in an infinite loop. */
 	for( ;; )
@@ -323,7 +323,7 @@ void vTask3( void *pvParameters )
 		semaphore has been successfully obtained - so there is no need to check
 		the returned value. */
 
-		xSemaphoreTake( xBinarySemaphoreWWDG, portMAX_DELAY );
+		xSemaphoreTake( xCountingSemaphoreWWDG, portMAX_DELAY );
 		trace_printf( "%s \n",pcTaskName );
 		blinkLeds[(++val)%4].toggle ();
 	}
@@ -356,7 +356,7 @@ void EXTI0_IRQHandler(void)
 	portBASE_TYPE xHigherPriorityTaskWoken = pdFALSE;
 
 	/* 'Give' the semaphore to unblock the task. */
-	xSemaphoreGiveFromISR( xBinarySemaphore, &xHigherPriorityTaskWoken );
+	xSemaphoreGiveFromISR( xCountingSemaphoreEXTI, &xHigherPriorityTaskWoken );
 
 	/* Clear the software interrupt bit using the interrupt controllers
 	Clear Pending register. */
@@ -393,7 +393,13 @@ void WWDG_IRQHandler( void )
 	portBASE_TYPE xHigherPriorityTaskWoken = pdFALSE;
 
     /* 'Give' the semaphore to unblock the task. */
-    xSemaphoreGiveFromISR( xBinarySemaphoreWWDG, &xHigherPriorityTaskWoken );
+    xSemaphoreGiveFromISR( xCountingSemaphoreWWDG, &xHigherPriorityTaskWoken );
+    xSemaphoreGiveFromISR( xCountingSemaphoreWWDG, &xHigherPriorityTaskWoken );
+    xSemaphoreGiveFromISR( xCountingSemaphoreWWDG, &xHigherPriorityTaskWoken );
+    xSemaphoreGiveFromISR( xCountingSemaphoreWWDG, &xHigherPriorityTaskWoken );
+    xSemaphoreGiveFromISR( xCountingSemaphoreWWDG, &xHigherPriorityTaskWoken );
+    xSemaphoreGiveFromISR( xCountingSemaphoreWWDG, &xHigherPriorityTaskWoken );
+    xSemaphoreGiveFromISR( xCountingSemaphoreWWDG, &xHigherPriorityTaskWoken );
 
     /* Clear the software interrupt bit using the interrupt controllers
     Clear Pending register. */
