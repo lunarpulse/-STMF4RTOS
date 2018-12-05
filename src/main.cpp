@@ -36,7 +36,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "semphr.h"
-
+#include "stm32f4xx_hal_usart.h"
 
 // ----------------------------------------------------------------------------
 //
@@ -85,7 +85,7 @@ BlinkLed blinkLeds[1] =
 
 #elif defined(STM32F407xx)
 
-#warning "Assume a STM32F4-Discovery board, PD12-PD15, active high."
+// #warning "Assume a STM32F4-Discovery board, PD12-PD15, active high."
 
 #define BLINK_PORT_NUMBER         (3)
 #define BLINK_PIN_NUMBER_GREEN    (12)
@@ -145,6 +145,7 @@ BlinkLed blinkLeds[1] =
 
 #endif
 
+
 // ----- main() ---------------------------------------------------------------
 
 // Sample pragmas to cope with warnings. Please note the related line at
@@ -154,12 +155,31 @@ BlinkLed blinkLeds[1] =
 #pragma GCC diagnostic ignored "-Wmissing-declarations"
 #pragma GCC diagnostic ignored "-Wreturn-type"
 
+/* UART handler declaration */
+UART_HandleTypeDef UartHandle;
+__IO ITStatus UartReady = RESET;
+
 void vTask1( void *pvParameters );
 void vTask2( void *pvParameters );
+
+static void MX_USART2_UART_Init(void);
+static void Error_Handler(void);
+void SystemClock_Config(void);
+
+UART_HandleTypeDef huart2;
+
+
 SemaphoreHandle_t xSemaphore = NULL;
 int
 main(int argc, char* argv[])
 {
+	HAL_Init();
+
+
+	  /* Configure the system clock */
+	  MX_USART2_UART_Init();
+
+
   // Send a greeting to the trace device (skipped on Release).
   trace_puts("Light Up!");
 
@@ -201,6 +221,12 @@ main(int argc, char* argv[])
 	trace_printf("Eclipse-FreeRTOS Project starting \n");
 	vTraceEnable(TRC_START);
 
+	/* lets create the binary semaphore dynamically */
+	xSemaphore = xSemaphoreCreateBinary();
+
+	/* lets make the semaphore token available for the first time */
+	xSemaphoreGive( xSemaphore);
+
 	/* Create one of the two tasks. */
 	xTaskCreate(	vTask1,		/* Pointer to the function that implements the task. */
 					"Task 1",	/* Text name for the task.  This is to facilitate debugging only. */
@@ -210,13 +236,8 @@ main(int argc, char* argv[])
 					NULL );		/* We are not using the task handle. */
 
 	/* Create the other task in exactly the same way. */
-	xTaskCreate( vTask2, "Task 2", 240, NULL, 1, NULL );
+	xTaskCreate( vTask2, "Task 2", 240, NULL, 2, NULL );
 
-/* lets create the binary semaphore dynamically */
-	xSemaphore = xSemaphoreCreateBinary();
-
-	/* lets make the semaphore token available for the first time */
-	xSemaphoreGive( xSemaphore);
 
 	/* Start the scheduler so our tasks start executing. */
 	vTaskStartScheduler();
@@ -229,26 +250,30 @@ void vTask1( void *pvParameters )
 const char *pcTaskName = "Task 1 is running\n";
 volatile unsigned long ul;
 static unsigned int val;
-
+const char *pcTaskNameCopy= pcTaskName;
 	/* As per most tasks, this task is implemented in an infinite loop. */
 	for( ;; )
 	{
 		/* Print out the name of this task. */
 		/* lets make the sema un-available */
+		 //xSemaphoreTake( xSemaphore, ( TickType_t ) portMAX_DELAY );
 
-		 xSemaphoreTake( xSemaphore, ( TickType_t ) portMAX_DELAY );
+		for(int i = 0 ; i< 8 ;i ++){
+			pcTaskName=pcTaskNameCopy;
+
+			while (pcTaskName && *pcTaskName){
+						while ( __HAL_UART_GET_FLAG (&huart2 , UART_FLAG_TXE ) == RESET);
+						USART2 ->DR = (*pcTaskName++ & 0xff);
+					}
+		}
+
 		 trace_printf( "%s\n",pcTaskName );
-	      blinkLeds[(++val)%4].toggle ();
+	    //  blinkLeds[(++val)%4].toggle ();
 		/* lets make the sema available */
-		 xSemaphoreGive( xSemaphore);
+		 //xSemaphoreGive( xSemaphore);
 
 		/* Delay for a period. */
-		for( ul = 0; ul < mainDELAY_LOOP_COUNT; ul++ )
-		{
-			/* This loop is just a very crude delay implementation.  There is
-			nothing to do in here.  Later exercises will replace this crude
-			loop with a proper delay/sleep function. */
-		}
+	      vTaskDelay(100/portTICK_RATE_MS);
 	}
 }
 /*-----------------------------------------------------------*/
@@ -258,29 +283,186 @@ void vTask2( void *pvParameters )
 const char *pcTaskName = "Task 2 is running\n";
 volatile unsigned long ul;
 static unsigned int val;
+const char *pcTaskNameCopy= pcTaskName;
 
 	/* As per most tasks, this task is implemented in an infinite loop. */
 	for( ;; )
 	{
+		//xSemaphoreTake( xSemaphore, ( TickType_t ) portMAX_DELAY );
+
+
+		for(int i = 0 ; i< 8 ;i ++){
+			pcTaskName=pcTaskNameCopy;
+
+			while (pcTaskName && *pcTaskName){
+						while ( __HAL_UART_GET_FLAG (&huart2 , UART_FLAG_TXE ) == RESET);
+						USART2 ->DR = (*pcTaskName++ & 0xff);
+					}
+		}
+
 		/* Print out the name of this task. */
 		/* lets make the sema un-available */
-		 xSemaphoreTake( xSemaphore, ( TickType_t ) portMAX_DELAY );
 	  	 trace_printf( "%s\n",pcTaskName );
-	      blinkLeds[(++val)%4].toggle ();
+	    //  blinkLeds[(++val)%4].toggle ();
 		/* lets make the sema available */
-		 xSemaphoreGive( xSemaphore);
+		 //xSemaphoreGive( xSemaphore);
 
 		/* Delay for a period. */
-	for( ul = 0; ul < mainDELAY_LOOP_COUNT; ul++ )
-		{
-			/* This loop is just a very crude delay implementation.  There is
-			nothing to do in here.  Later exercises will replace this crude
-			loop with a proper delay/sleep function. */
-		}
+	      vTaskDelay(100/portTICK_RATE_MS);
 	}
 }
 /*-----------------------------------------------------------*/
+/**
+  * @brief System Clock Configuration
+  * @retval None
+  */
+void SystemClock_Config(void)
+{
+  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+  RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};
 
+  /**Configure the main internal regulator output voltage
+  */
+  __HAL_RCC_PWR_CLK_ENABLE();
+  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
+  /**Initializes the CPU, AHB and APB busses clocks
+  */
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+  RCC_OscInitStruct.PLL.PLLM = 8;
+  RCC_OscInitStruct.PLL.PLLN = 336;
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+  RCC_OscInitStruct.PLL.PLLQ = 7;
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /**Initializes the CPU, AHB and APB busses clocks
+  */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
+
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_5) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_I2S;
+  PeriphClkInitStruct.PLLI2S.PLLI2SN = 192;
+  PeriphClkInitStruct.PLLI2S.PLLI2SR = 2;
+  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
+  {
+    Error_Handler();
+  }
+}
+
+static void MX_USART2_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART2_Init 0 */
+
+  /* USER CODE END USART2_Init 0 */
+
+  /* USER CODE BEGIN USART2_Init 1 */
+
+  /* USER CODE END USART2_Init 1 */
+  huart2.Instance = USART2;
+  huart2.Init.BaudRate = 9600;
+  huart2.Init.WordLength = UART_WORDLENGTH_8B;
+  huart2.Init.StopBits = UART_STOPBITS_1;
+  huart2.Init.Parity = UART_PARITY_NONE;
+  huart2.Init.Mode = UART_MODE_TX_RX;
+  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART2_Init 2 */
+
+  /* USER CODE END USART2_Init 2 */
+
+}
+void HAL_UART_MspInit(UART_HandleTypeDef* huart)
+{
+
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+  if(huart->Instance==USART2)
+  {
+  /* USER CODE BEGIN USART2_MspInit 0 */
+
+  /* USER CODE END USART2_MspInit 0 */
+    /* Peripheral clock enable */
+    __HAL_RCC_USART2_CLK_ENABLE();
+
+    __HAL_RCC_GPIOA_CLK_ENABLE();
+    /**USART2 GPIO Configuration
+    PA2     ------> USART2_TX
+    PA3     ------> USART2_RX
+    */
+    GPIO_InitStruct.Pin = GPIO_PIN_2|GPIO_PIN_3;
+    GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull = GPIO_PULLUP;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+    GPIO_InitStruct.Alternate = GPIO_AF7_USART2;
+    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+    /* USART2 interrupt Init */
+    HAL_NVIC_SetPriority(USART2_IRQn, 5, 0);
+    HAL_NVIC_EnableIRQ(USART2_IRQn);
+  /* USER CODE BEGIN USART2_MspInit 1 */
+
+  /* USER CODE END USART2_MspInit 1 */
+  }
+
+}
+
+/**
+* @brief UART MSP De-Initialization
+* This function freeze the hardware resources used in this example
+* @param huart: UART handle pointer
+* @retval None
+*/
+
+void HAL_UART_MspDeInit(UART_HandleTypeDef* huart)
+{
+
+  if(huart->Instance==USART2)
+  {
+  /* USER CODE BEGIN USART2_MspDeInit 0 */
+
+  /* USER CODE END USART2_MspDeInit 0 */
+    /* Peripheral clock disable */
+    __HAL_RCC_USART2_CLK_DISABLE();
+
+    /**USART2 GPIO Configuration
+    PA2     ------> USART2_TX
+    PA3     ------> USART2_RX
+    */
+    HAL_GPIO_DeInit(GPIOA, GPIO_PIN_2|GPIO_PIN_3);
+
+    /* USART2 interrupt DeInit */
+    HAL_NVIC_DisableIRQ(USART2_IRQn);
+  /* USER CODE BEGIN USART2_MspDeInit 1 */
+
+  /* USER CODE END USART2_MspDeInit 1 */
+  }
+
+}
+
+static void Error_Handler(void)
+{
+  /* Turn LED5 on */
+  while(1)
+  {
+  }
+}
 void vApplicationMallocFailedHook( void )
 {
 	/* This function will only be called if an API call to create a task, queue
