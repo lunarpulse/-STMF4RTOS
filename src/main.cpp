@@ -155,26 +155,26 @@ BlinkLed blinkLeds[1] =
 #pragma GCC diagnostic ignored "-Wmissing-declarations"
 #pragma GCC diagnostic ignored "-Wreturn-type"
 
-/* UART handler declaration */
-UART_HandleTypeDef UartHandle;
-__IO ITStatus UartReady = RESET;
 
 void vTask1( void *pvParameters );
 void vTask2( void *pvParameters );
+static void prvNewPrintString( const portCHAR *pcString );
 
 static void MX_USART2_UART_Init(void);
 static void Error_Handler(void);
 void SystemClock_Config(void);
 
+/* UART handler declaration */
 UART_HandleTypeDef huart2;
 
+xSemaphoreHandle xMutex; //univesal synchroniser container
 
 SemaphoreHandle_t xSemaphore = NULL;
 int
 main(int argc, char* argv[])
 {
 	HAL_Init();
-
+	//SystemClock_Config();
 
 	  /* Configure the system clock */
 	  MX_USART2_UART_Init();
@@ -197,8 +197,6 @@ main(int argc, char* argv[])
       blinkLeds[i].powerUp ();
     }
 
-  uint32_t seconds = 0;
-
   for (size_t i = 0; i < (sizeof(blinkLeds) / sizeof(blinkLeds[0])); ++i)
     {
       blinkLeds[i].turnOn ();
@@ -212,105 +210,106 @@ main(int argc, char* argv[])
       blinkLeds[i].turnOff ();
     }
 
-  //timer.sleep (BLINK_OFF_TICKS);
-
-  ++seconds;
-  trace_printf ("Second %u\n", seconds);
-
-
 	trace_printf("Eclipse-FreeRTOS Project starting \n");
 	vTraceEnable(TRC_START);
 
 	/* lets create the binary semaphore dynamically */
-	xSemaphore = xSemaphoreCreateBinary();
 
-	/* lets make the semaphore token available for the first time */
-	xSemaphoreGive( xSemaphore);
+	xMutex = xSemaphoreCreateMutex();
+	srand( 609 );
 
-	/* Create one of the two tasks. */
-	xTaskCreate(	vTask1,		/* Pointer to the function that implements the task. */
-					"Task 1",	/* Text name for the task.  This is to facilitate debugging only. */
-					240,		/* Stack depth in words. */
-					NULL,		/* We are not using the task parameter. */
-					1,			/* This task will run at priority 1. */
-					NULL );		/* We are not using the task handle. */
+	if( xMutex != NULL )
+   {
+		const char *msg1 = "SLowTaskLPR is running ******************************************\n";
+		const char *msg2 = "FastTaskMPR is running ------------------------------------------\n";
+		const char *msg3 = "SLowTaskMPR is running $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$\n";
+		const char *msg4 = "FastTaskHPR is running ##########################################\n";
 
-	/* Create the other task in exactly the same way. */
-	xTaskCreate( vTask2, "Task 2", 240, NULL, 2, NULL );
+		/* Create one of the two tasks. */
+		xTaskCreate(	vTask1,		/* Pointer to the function that implements the task. */
+						"SLowTaskLPR",	/* Text name for the task.  This is to facilitate debugging only. */
+						240,		/* Stack depth in words. */
+						(void*)msg1,		/* We are not using the task parameter. */
+						1,			/* This task will run at priority 1. */
+						NULL );		/* We are not using the task handle. */
 
+		/* Create the other task in exactly the same way. */
+		xTaskCreate( vTask2, "FastTaskMPR", 240, (void*)msg2, 2, NULL );
 
-	/* Start the scheduler so our tasks start executing. */
-	vTaskStartScheduler();
+		xTaskCreate( vTask1, "SLowTaskMPR", 240, (void*)msg3, 3, NULL );
+		xTaskCreate( vTask2, "FastTaskHPR", 240, (void*)msg4, 4, NULL );
+
+		/* Start the scheduler so our tasks start executing. */
+		vTaskStartScheduler();
+   }
 
 }
 
 
 void vTask1( void *pvParameters )
 {
-const char *pcTaskName = "Task 1 is running\n";
-volatile unsigned long ul;
-static unsigned int val;
-const char *pcTaskNameCopy= pcTaskName;
-	/* As per most tasks, this task is implemented in an infinite loop. */
+const char *msg= (char *) pvParameters;	/* As per most tasks, this task is implemented in an infinite loop. */
 	for( ;; )
 	{
 		/* Print out the name of this task. */
 		/* lets make the sema un-available */
-		 xSemaphoreTake( xSemaphore, ( TickType_t ) portMAX_DELAY );
 
-		for(int i = 0 ; i< 8 ;i ++){
-			pcTaskName=pcTaskNameCopy;
+		prvNewPrintString(msg);
 
-			while (pcTaskName && *pcTaskName){
-						while ( __HAL_UART_GET_FLAG (&huart2 , UART_FLAG_TXE ) == RESET);
-						USART2 ->DR = (*pcTaskName++ & 0xff);
-					}
-		}
-
-		 //trace_printf( "%s\n",pcTaskName );
-	    blinkLeds[(++val)%4].toggle ();
-		/* lets make the sema available */
-	    xSemaphoreGive( xSemaphore);
-
+	    blinkLeds[1].toggle ();
 		/* Delay for a period. */
-	    vTaskDelay(100/portTICK_RATE_MS);
+	    vTaskDelay(75/portTICK_RATE_MS);
 	}
 }
 /*-----------------------------------------------------------*/
 
 void vTask2( void *pvParameters )
 {
-const char *pcTaskName = "Task 2 is running\n";
-volatile unsigned long ul;
-static unsigned int val;
-const char *pcTaskNameCopy= pcTaskName;
+const char *msg= (char *)pvParameters;
 
 	/* As per most tasks, this task is implemented in an infinite loop. */
 	for( ;; )
 	{
-		xSemaphoreTake( xSemaphore, ( TickType_t ) portMAX_DELAY );
-
-
-		for(int i = 0 ; i< 8 ;i ++){
-			pcTaskName=pcTaskNameCopy;
-
-			while (pcTaskName && *pcTaskName){
-						while ( __HAL_UART_GET_FLAG (&huart2 , UART_FLAG_TXE ) == RESET);
-						USART2 ->DR = (*pcTaskName++ & 0xff);
-					}
-		}
+		prvNewPrintString(msg);
 
 		/* Print out the name of this task. */
 		/* lets make the sema un-available */
 	  	//trace_printf( "%s\n",pcTaskName );
-	    blinkLeds[(++val)%4].toggle ();
-		/* lets make the sema available */
-		xSemaphoreGive( xSemaphore);
-
+	    blinkLeds[0].toggle ();
 		/* Delay for a period. */
-	    vTaskDelay(100/portTICK_RATE_MS);
+	    vTaskDelay(50/portTICK_RATE_MS);
 	}
 }
+
+static void prvNewPrintString( const portCHAR *pcString )
+{
+	/* The semaphore is created before the scheduler is started so already
+	exists by the time this task executes.
+
+	Attempt to take the semaphore, blocking indefinitely if the mutex is not
+	available immediately.  The call to xSemaphoreTake() will only return when
+	the semaphore has been successfully obtained so there is no need to check the
+	return value.  If any other delay period was used then the code must check
+	that xSemaphoreTake() returns pdTRUE before accessing the resource (in this
+	case standard out. */
+	 if( xSemaphoreTake( xMutex, portMAX_DELAY ) == pdTRUE )
+	{
+		//blinkLeds[2].turnOff();
+		for(int i = 0 ; i< 1 ;i ++){
+			while (pcString && *pcString){
+				while ( __HAL_UART_GET_FLAG (&huart2 , UART_FLAG_TXE ) == RESET);
+				USART2 ->DR = (*pcString++ & 0xff);
+			}
+		}
+	    blinkLeds[3].toggle ();
+
+		xSemaphoreGive( xMutex );
+	}
+	 else{
+		    blinkLeds[2].toggle();
+	 }
+}
+/*-----------------------------------------------------------*/
 /*-----------------------------------------------------------*/
 /**
   * @brief System Clock Configuration
