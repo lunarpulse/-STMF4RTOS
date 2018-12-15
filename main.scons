@@ -1,0 +1,165 @@
+# gnu arm toolchain must be already in system path    
+
+proj_name = 'STM32M4RTOS'
+
+import os
+import os.path
+
+env = Environment(ENV = os.environ)
+
+env.Replace(AS="arm-none-eabi-as")
+env.Replace(AR="arm-none-eabi-ar")
+env.Replace(CC="arm-none-eabi-gcc")
+env.Replace(CXX="arm-none-eabi-g++")
+env.Replace(LINK="arm-none-eabi-g++")                # predefined is 'arm-none-eabi-gcc'
+env.Replace(OBJCOPY="arm-none-eabi-objcopy")
+env.Replace(SIZE="arm-none-eabi-size")
+env.Replace(PROGSUFFIX=".elf")
+env.Replace(RANLIB="arm-none-eabi-ranlib")
+
+def filtered_glob( pattern, omit=[],
+  ondisk=True, source=False, strings=False):
+    return filter(
+      lambda f: os.path.basename(f.path) not in omit,
+      Glob(pattern))
+
+# include locations
+system_includes = [
+    '#system/include',
+    '#system/include/arm',
+    '#system/include/cmsis',
+    '#system/include/cortexm',
+    '#system/include/diag',
+    ]
+
+middleware_include = [
+    '#FreeRTOS/Source/include',
+    '#FreeRTOS/Source/portable/GCC/ARM_CM4F',
+    '#FreeRTOS/Source/portable/MemMang',
+    ]
+config_include = [
+    '#config',
+]
+driver_include = [
+    '#system/include/stm32f4-hal',
+    '#system/include/stm32f4-hal/Legacy',
+    ]
+
+tracerecorderlib_include = [
+    '#TraceRecorderLib/include',
+]
+
+env['CPPPATH'] = [
+    '#include',
+    ] + system_includes +config_include +tracerecorderlib_include+ middleware_include + driver_include
+
+# uC specific compiler flags
+cortex_m4_flags = [
+    '-mthumb',
+    '-mcpu=cortex-m4',
+    '-mfloat-abi=softfp',
+    '-mfpu=fpv4-sp-d16',
+    ]
+
+# defines
+env.Append(CPPDEFINES = [
+    'USE_HAL_DRIVER',
+    'OS_USE_SEMIHOSTING',
+    'DEBUG',
+    'USE_FULL_ASSERT',
+    'TRACE',
+    'OS_USE_TRACE_SEMIHOSTING_DEBUG',
+    'STM32F407xx',
+    'HSE_VALUE=8000000',
+])
+
+# for C
+env.Append(CFLAGS = [
+    '-std=gnu11', 
+])
+
+# general C and C++ flags
+env.Append(CCFLAGS = [
+    '-ffreestanding',
+    '-fno-move-loop-invariants',
+    '-Os', 
+    '-fmessage-length=0',
+    '-fsigned-char',
+    '-ffunction-sections',
+    '-fdata-sections',
+    '-Wall',
+    '-Wextra',
+    '-g3',
+#   '-MMD', 
+#    '-MP'
+] + cortex_m4_flags)
+
+
+
+# linker flags
+env.Append(LINKFLAGS = cortex_m4_flags + [
+    '-Lldscripts',
+    '-Tmem.ld',
+    '-Tlibs.ld',
+    '-Tsections.ld',
+    '-specs=nosys.specs',
+    '-static',
+    '-Wl,--gc-sections',
+    '-Wl,--defsym=malloc_getpagesize_P=0x80',
+    '-Wl,--start-group',
+    '-lc',
+    '-lm',
+    '-Wl,--end-group',
+    '-specs=nano.specs',
+    '-Xlinker',
+    '--gc-sections',
+    '-u _printf_float',
+    '-u _scanf_float',
+    '-Wl,-Map,"target/%s.map"'%(proj_name),
+    ]) 
+
+# support files (possibly can be done as LIB)
+system_sources =filtered_glob('#system/src/*/*.c', ['stm32f4xx_hal_msp_template.c','stm32f4xx_hal_timebase_rtc_alarm_template.c','stm32f4xx_hal_timebase_rtc_wakeup_template.c','stm32f4xx_hal_timebase_tim_template.c'])
+
+tracerecorderlib_sources= Glob('#TraceRecorderLib/*.c') 
+freertos_src_sources = Glob( '#FreeRTOS/Source/*.c')
+freertos_pg_sources = Glob( '#FreeRTOS/Source/portable/GCC/ARM_CM4F/*.c')
+freertos_mm_sources = Glob( '#FreeRTOS/Source/portable/MemMang/*.c')
+startup_source = Glob('#system/src/cmsis/*.S')
+ 
+sources = system_sources  +tracerecorderlib_sources+  freertos_src_sources+ freertos_pg_sources+ freertos_mm_sources  + startup_source
+
+
+program_sources = Glob('#src/*.c*')
+
+# build everything
+prg = env.Program(
+    target = proj_name,
+    source = program_sources + sources,
+)
+ 
+# binary file builder
+# Invoking: Cross ARM GNU Create Flash Image
+def arm_generator(source, target, env, for_signature):
+    return '$OBJCOPY -O ihex %s %s'%(source[0], target[0])
+env.Append(BUILDERS = {
+    'Objcopy': Builder(
+        generator=arm_generator,
+        suffix='.hex',
+        src_suffix='.elf'
+    )
+})
+
+# file size builder
+# Invoking: Cross ARM GNU Print Size
+def arm_size_generator(source, target, env, for_signature):
+    return '$SIZE --format=berkeley %s'%(source[0])
+env.Append(BUILDERS = {
+    'Size': Builder(
+        generator=arm_size_generator,
+        src_suffix='.elf'
+    )
+})
+
+env.Objcopy(prg)
+env.Size(prg)

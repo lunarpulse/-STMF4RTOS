@@ -173,7 +173,10 @@ SemaphoreHandle_t xSemaphore = NULL;
 int
 main(int argc, char* argv[])
 {
+	//SystemInit();
+	//SystemCoreClockUpdate();
 	HAL_Init();
+
 	//SystemClock_Config();
 
 	  /* Configure the system clock */
@@ -258,7 +261,7 @@ const char *msg= (char *) pvParameters;	/* As per most tasks, this task is imple
 
 	    blinkLeds[1].toggle ();
 		/* Delay for a period. */
-	    vTaskDelay(75/portTICK_RATE_MS);
+	    vTaskDelay(( rand() & 0x1FF ) );
 	}
 }
 /*-----------------------------------------------------------*/
@@ -277,7 +280,7 @@ const char *msg= (char *)pvParameters;
 	  	//trace_printf( "%s\n",pcTaskName );
 	    blinkLeds[0].toggle ();
 		/* Delay for a period. */
-	    vTaskDelay(50/portTICK_RATE_MS);
+	    vTaskDelay(( rand() & 0x1FF ) );
 	}
 }
 
@@ -310,23 +313,25 @@ static void prvNewPrintString( const portCHAR *pcString )
 	 }
 }
 /*-----------------------------------------------------------*/
-/*-----------------------------------------------------------*/
+
 /**
   * @brief System Clock Configuration
   * @retval None
   */
 void SystemClock_Config(void)
 {
-  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
-  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
-  RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};
 
-  /**Configure the main internal regulator output voltage
-  */
+  RCC_OscInitTypeDef RCC_OscInitStruct;
+  RCC_ClkInitTypeDef RCC_ClkInitStruct;
+
+    /**Configure the main internal regulator output voltage
+    */
   __HAL_RCC_PWR_CLK_ENABLE();
+
   __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
-  /**Initializes the CPU, AHB and APB busses clocks
-  */
+
+    /**Initializes the CPU, AHB and APB busses clocks
+    */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
@@ -337,10 +342,11 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLQ = 7;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
-    Error_Handler();
+	  Error_Handler();
   }
-  /**Initializes the CPU, AHB and APB busses clocks
-  */
+
+    /**Initializes the CPU, AHB and APB busses clocks
+    */
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
@@ -350,16 +356,21 @@ void SystemClock_Config(void)
 
   if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_5) != HAL_OK)
   {
-    Error_Handler();
+	  Error_Handler();
   }
-  PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_I2S;
-  PeriphClkInitStruct.PLLI2S.PLLI2SN = 192;
-  PeriphClkInitStruct.PLLI2S.PLLI2SR = 2;
-  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
-  {
-    Error_Handler();
-  }
+
+    /**Configure the Systick interrupt time
+    */
+  HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq()/1000);
+
+    /**Configure the Systick
+    */
+  HAL_SYSTICK_CLKSourceConfig(SYSTICK_CLKSOURCE_HCLK);
+
+  /* SysTick_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(SysTick_IRQn, 0, 0);
 }
+
 
 static void MX_USART2_UART_Init(void)
 {
