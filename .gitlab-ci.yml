@@ -57,7 +57,6 @@ testcheck1:
     - echo "For example run a lint test"
     - ls ./target
     - ls ./src
-    - ls ./Drivers
     - cat ./target/result1.txt
     - cat ./target/result2.txt
   cache:
