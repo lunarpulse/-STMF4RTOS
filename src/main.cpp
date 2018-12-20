@@ -189,8 +189,14 @@ extern "C" void vApplicationTickHook( void );
 SemaphoreHandle_t xSemaphore = NULL;
 
 const char* pcTaskName2 = "Task 2 is running\n";
+
 xTaskHandle xTask2Handle;
+
+// Trace User Events Channels
+traceString ue1, ue2;
+
 static volatile unsigned long ulIdleCount = 0UL;
+
 int
 main(int argc, char* argv[])
 {
@@ -234,8 +240,12 @@ main(int argc, char* argv[])
   trace_printf ("Second %u\n", seconds);
 
 	trace_printf("Eclipse-FreeRTOS Project starting \n");
-	vTraceEnable(TRC_START);
 
+	 // Starting tracealyser
+		vTraceEnable(TRC_START);
+	// Register the Trace User Event Channels
+		 ue1 = xTraceRegisterString("LED");
+		 ue2 = xTraceRegisterString("msg");
 	const char* pcTaskName1 = "Task 1 is running\n";
 
 	/* Create one of the two tasks. */
@@ -303,6 +313,7 @@ static char cBuffer[ mainMAX_MSG_LEN ];
 		next line is executed there will be a message to be output. */
 		sprintf( cBuffer, "%s", pcMessageToPrint );
 		trace_printf( "%s\n",cBuffer );
+		vTracePrint(ue2, "IOGK");
 
 		/* Now simply go back to wait for the next message. */
 	}
@@ -352,6 +363,9 @@ xLastWakeTime = xTaskGetTickCount();
 		 xSemaphoreTake( xSemaphore, ( TickType_t ) portMAX_DELAY );
 		 trace_printf( "%s, at idle count: %d\n",toSay ,ulIdleCount);
 	      blinkLeds[(++val)%4].toggle ();
+
+		// Send count value into trace UEC
+		vTracePrintF(ue1, "%d", val);
 		/* lets make the sema available */
 		 xSemaphoreGive( xSemaphore);
 		 if(val%4 == 0){
@@ -359,6 +373,7 @@ xLastWakeTime = xTaskGetTickCount();
 
 			 trace_printf( "%s after task2 priority increased by 2\n",pvParameters );
 			 vTaskPrioritySet(xTask2Handle, (uxPiority+2));
+			 vTracePrint(ue2, "PU");
 
 		 }else
 		 {
@@ -388,6 +403,8 @@ xLastWakeTime = xTaskGetTickCount();
 		 xSemaphoreTake( xSemaphore, ( TickType_t ) portMAX_DELAY );
 	  	 trace_printf( "%s, at idle count: %d\n",pcTaskName ,ulIdleCount );
 	      blinkLeds[(count++)%4].toggle ();
+	      // Send count value into trace UEC
+		vTracePrintF(ue1, "%d", count);
 		/* lets make the sema available */
 		 xSemaphoreGive( xSemaphore);
 
@@ -397,6 +414,8 @@ xLastWakeTime = xTaskGetTickCount();
 			xQueueSendToBack( xPrintQueue, &pcStringsToPrint[ 1 ], 0 );
 
 			trace_printf( "%s for 31 iterations and lower its priority\n", pcTaskName );
+			vTracePrint(ue2, "PD");
+
 			count = 0;
 			//vTaskDelay(1000/portTICK_RATE_MS);
 			vTaskDelayUntil(&xLastWakeTime, xFrequency);
