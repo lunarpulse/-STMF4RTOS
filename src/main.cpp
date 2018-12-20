@@ -29,6 +29,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string>
 #include "diag/Trace.h"
 #include "stm32f4xx_hal.h"
 
@@ -160,12 +161,9 @@ void Error_Handler(void);
 void SystemClock_Config(void);
 
 /* Define the strings that the tasks and interrupt will print out via the gatekeeper. */
-static char *pcStringsToPrint[] =
-{
-	"Task 1 ****************************************************\n",
-	"Task 2 ----------------------------------------------------\n",
-	"Message printed from the tick hook interrupt ##############\n"
-};
+std::string pcStringsToPrint [3] = {"Task 1 ****************************************************\n",
+		"Task 2 ----------------------------------------------------\n",
+		"Message printed from the tick hook interrupt ##############\n"};
 
 /*-----------------------------------------------------------*/
 
