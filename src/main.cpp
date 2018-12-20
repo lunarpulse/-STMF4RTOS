@@ -30,6 +30,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "diag/Trace.h"
+#include "stm32f4xx_hal.h"
 
 #include "Timer.h"
 #include "BlinkLed.h"
@@ -85,7 +86,7 @@ BlinkLed blinkLeds[1] =
 
 #elif defined(STM32F407xx)
 
-#warning "Assume a STM32F4-Discovery board, PD12-PD15, active high."
+//#warning "Assume a STM32F4-Discovery board, PD12-PD15, active high."
 
 #define BLINK_PORT_NUMBER         (3)
 #define BLINK_PIN_NUMBER_GREEN    (12)
@@ -150,10 +151,13 @@ BlinkLed blinkLeds[1] =
 
 /* The task that sends messages to the stdio gatekeeper.  Two instances of this
 task are created. */
-static void prvPrintTask( void *pvParameters );
+//static void prvPrintTask( void *pvParameters );
 
 /* The gatekeeper task itself. */
 static void prvStdioGatekeeperTask( void *pvParameters );
+
+void Error_Handler(void);
+void SystemClock_Config(void);
 
 /* Define the strings that the tasks and interrupt will print out via the gatekeeper. */
 static char *pcStringsToPrint[] =
@@ -191,6 +195,9 @@ static volatile unsigned long ulIdleCount = 0UL;
 int
 main(int argc, char* argv[])
 {
+
+	HAL_Init();
+	SystemClock_Config();
   // Send a greeting to the trace device (skipped on Release).
   trace_puts("Light Up!");
 
@@ -227,7 +234,6 @@ main(int argc, char* argv[])
   ++seconds;
   trace_printf ("Second %u\n", seconds);
 
-
 	trace_printf("Eclipse-FreeRTOS Project starting \n");
 	vTraceEnable(TRC_START);
 
@@ -260,7 +266,7 @@ main(int argc, char* argv[])
 
 	/* The tasks are going to use a pseudo random delay, seed the random number
 	generator. */
-	srand( 567 );
+	//srand( 567 );
 
 	/* Check the queue was created successfully. */
 
@@ -402,6 +408,59 @@ xLastWakeTime = xTaskGetTickCount();
 
 }
 /*-----------------------------------------------------------*/
+void SystemClock_Config(void)
+{
+  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+  RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};
+
+  /**Configure the main internal regulator output voltage
+  */
+  __HAL_RCC_PWR_CLK_ENABLE();
+  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
+  /**Initializes the CPU, AHB and APB busses clocks
+  */
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+  RCC_OscInitStruct.PLL.PLLM = 8;
+  RCC_OscInitStruct.PLL.PLLN = 336;
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+  RCC_OscInitStruct.PLL.PLLQ = 7;
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /**Initializes the CPU, AHB and APB busses clocks
+  */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
+
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_5) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_I2S;
+  PeriphClkInitStruct.PLLI2S.PLLI2SN = 192;
+  PeriphClkInitStruct.PLLI2S.PLLI2SR = 2;
+  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
+  {
+    Error_Handler();
+  }
+}
+
+void Error_Handler(void)
+{
+  /* USER CODE BEGIN Error_Handler_Debug */
+  /* User can add his own implementation to report the HAL error return state */
+
+  /* USER CODE END Error_Handler_Debug */
+}
 
 void vApplicationMallocFailedHook( void )
 {
@@ -423,7 +482,7 @@ void vApplicationStackOverflowHook( xTaskHandle *pxTask, signed char *pcTaskName
 void vApplicationIdleHook( void )
 {
 	ulIdleCount++;
-#if 1
+#if  1
 	HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI);
 #endif
 }
