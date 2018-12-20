@@ -173,14 +173,14 @@ SemaphoreHandle_t xSemaphore = NULL;
 int
 main(int argc, char* argv[])
 {
-	//SystemInit();
-	//SystemCoreClockUpdate();
+	SystemInit();
+	SystemCoreClockUpdate();
 	HAL_Init();
 
-	//SystemClock_Config();
+	SystemClock_Config();
 
-	  /* Configure the system clock */
-	  MX_USART2_UART_Init();
+  /* Configure the system clock */
+  MX_USART2_UART_Init();
 
 
   // Send a greeting to the trace device (skipped on Release).

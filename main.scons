@@ -64,7 +64,6 @@ cortex_m4_flags = [
 # defines
 env.Append(CPPDEFINES = [
     'USE_HAL_DRIVER',
-    'OS_USE_SEMIHOSTING',
     'DEBUG',
     'USE_FULL_ASSERT',
     'TRACE',
@@ -82,7 +81,7 @@ env.Append(CFLAGS = [
 env.Append(CCFLAGS = [
     '-ffreestanding',
     '-fno-move-loop-invariants',
-    '-Os', 
+    '-Og', 
     '-fmessage-length=0',
     '-fsigned-char',
     '-ffunction-sections',
@@ -127,7 +126,7 @@ freertos_pg_sources = Glob( '#FreeRTOS/Source/portable/GCC/ARM_CM4F/*.c')
 freertos_mm_sources = Glob( '#FreeRTOS/Source/portable/MemMang/*.c')
 startup_source = Glob('#system/src/cmsis/*.S')
  
-sources = system_sources  +tracerecorderlib_sources+  freertos_src_sources+ freertos_pg_sources+ freertos_mm_sources  + startup_source
+sources = system_sources + freertos_src_sources+ freertos_pg_sources+ freertos_mm_sources +tracerecorderlib_sources   + startup_source
 
 
 program_sources = Glob('#src/*.c*')
