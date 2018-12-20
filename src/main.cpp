@@ -29,6 +29,8 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string>
+
 #include "diag/Trace.h"
 #include "stm32f4xx_hal.h"
 
@@ -160,12 +162,9 @@ void Error_Handler(void);
 void SystemClock_Config(void);
 
 /* Define the strings that the tasks and interrupt will print out via the gatekeeper. */
-static char *pcStringsToPrint[] =
-{
-	"Task 1 ****************************************************\n",
-	"Task 2 ----------------------------------------------------\n",
-	"Message printed from the tick hook interrupt ##############\n"
-};
+std::string pcStringsToPrint [3] = {"Task 1 ****************************************************\n",
+		"Task 2 ----------------------------------------------------\n",
+		"Message printed from the tick hook interrupt ##############\n"};
 
 /*-----------------------------------------------------------*/
 
@@ -356,7 +355,7 @@ xLastWakeTime = xTaskGetTickCount();
 		/* lets make the sema available */
 		 xSemaphoreGive( xSemaphore);
 		 if(val%4 == 0){
-			 xQueueSendToBack( xPrintQueue, &( pcStringsToPrint[ 0 ] ), 0 );
+			 xQueueSendToBack( xPrintQueue, &pcStringsToPrint[ 0 ], 0 );
 
 			 trace_printf( "%s after task2 priority increased by 2\n",pvParameters );
 			 vTaskPrioritySet(xTask2Handle, (uxPiority+2));
@@ -395,7 +394,7 @@ xLastWakeTime = xTaskGetTickCount();
 		 vTaskDelay(8/portTICK_RATE_MS);
 		 if(count> 31) {
 
-			xQueueSendToBack( xPrintQueue, &( pcStringsToPrint[ 1 ] ), 0 );
+			xQueueSendToBack( xPrintQueue, &pcStringsToPrint[ 1 ], 0 );
 
 			trace_printf( "%s for 31 iterations and lower its priority\n", pcTaskName );
 			count = 0;
@@ -482,7 +481,7 @@ void vApplicationStackOverflowHook( xTaskHandle *pxTask, signed char *pcTaskName
 void vApplicationIdleHook( void )
 {
 	ulIdleCount++;
-#if  1
+#if  0
 	HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI);
 #endif
 }
