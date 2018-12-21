@@ -154,12 +154,7 @@ BlinkLed blinkLeds[1] =
 task are created. */
 //static void prvPrintTask( void *pvParameters );
 
-/* The gatekeeper task itself. */
-static void prvStdioGatekeeperTask( void *pvParameters );
-static void MX_USART2_UART_Init(void);
-static void Error_Handler(void);
 
-void SystemClock_Config(void);
 
 /* Define the strings that the tasks and interrupt will print out via the gatekeeper. */
 std::string pcStringsToPrint [3] = {"Task 1 ****************************************************\n",
@@ -171,7 +166,7 @@ std::string pcStringsToPrint [3] = {"Task 1 ************************************
 /* Declare a variable of type xQueueHandle.  This is used to send messages from
 the print tasks to the gatekeeper task. */
 xQueueHandle xPrintQueue;
-
+xQueueHandle xUARTPrintQueue;
 // ----- main() ---------------------------------------------------------------
 
 // Sample pragmas to cope with warnings. Please note the related line at
@@ -186,6 +181,14 @@ void vTask2( void *pvParameters );
 void vTask3( void *pvParameters );
 void vTask4( void *pvParameters );
 
+/* The gatekeeper task itself. */
+static void prvStdioGatekeeperTask( void *pvParameters );
+static void prvUARTStdioGatekeeperTask( void *pvParameters )
+;
+static void MX_USART2_UART_Init(void);
+static void Error_Handler(void);
+
+void SystemClock_Config(void);
 extern "C" void vApplicationIdleHook( void );
 extern "C" void vApplicationTickHook( void );
 void BSP_PB_Init();
@@ -199,8 +202,10 @@ xTaskHandle xTask2Handle;
 /* UART handler declaration */
 UART_HandleTypeDef huart2;
 
+// Kernel objects
+xSemaphoreHandle xSem;
 // Trace User Events Channels
-traceString ue1, ue2;
+traceString ue1, ue2, ue3;
 
 static volatile unsigned long ulIdleCount = 0UL;
 
@@ -214,8 +219,6 @@ main(int argc, char* argv[])
 	/* Configure the system clock */
 	SystemClock_Config();
 
-	BSP_PB_Init();
-	MX_USART2_UART_Init();
 
   // Send a greeting to the trace device (skipped on Release).
   trace_puts("Light Up!");
@@ -257,30 +260,21 @@ main(int argc, char* argv[])
 
 	 // Starting tracealyser
 		vTraceEnable(TRC_START);
+		// Create Semaphore object
+		xSem = xSemaphoreCreateBinary();
+
+		// Give a nice name to the Semaphore in the trace recorder
+		vTraceSetSemaphoreName(xSem, "xSEM");
+
 	// Register the Trace User Event Channels
 		 ue1 = xTraceRegisterString("LED");
 		 ue2 = xTraceRegisterString("msg");
+		 ue3 = xTraceRegisterString("UART");
 	const char* pcTaskName1 = "Task 1 is running\n";
 
-	/* Create one of the two tasks. */
-	xTaskCreate(	vTask1,		/* Pointer to the function that implements the task. */
-					"Task 1",	/* Text name for the task.  This is to facilitate debugging only. */
-					240,		/* Stack depth in words. */
-					(void*)pcTaskName1,		/* We are not using the task parameter. */
-					2,			/* This task will run at priority 1. */
-					NULL );		/* We are not using the task handle. */
-
-	/* Create the other task in exactly the same way. */
-	xTaskCreate( vTask2, "Task 2", 240, (void*)pcTaskName2, 1, &xTask2Handle );
-
-
-
-	// Create Tasks
-	xTaskCreate(vTask3, 		"Task_3", 		256, NULL, 1, NULL);
-	xTaskCreate(vTask4, 		"Task_4", 		256, NULL, 2, NULL);
-
-/* lets create the binary semaphore dynamically */
+	/* lets create the binary semaphore dynamically */
 	xSemaphore = xSemaphoreCreateBinary();
+	vTraceSetSemaphoreName(xSemaphore, "xSEMBIN");
 
 	/* lets make the semaphore token available for the first time */
 	xSemaphoreGive( xSemaphore);
@@ -291,31 +285,44 @@ main(int argc, char* argv[])
     /* Before a queue is used it must be explicitly created.  The queue is created
 	to hold a maximum of 5 character pointers. */
     xPrintQueue = xQueueCreate( 5, sizeof( char * ) );
+    xUARTPrintQueue = xQueueCreate( 5, sizeof( char * ) );
 
-	/* The tasks are going to use a pseudo random delay, seed the random number
-	generator. */
-	//srand( 567 );
+    if( xUARTPrintQueue != NULL && xPrintQueue != NULL ){
+		/* The tasks are going to use a pseudo random delay, seed the random number
+		generator. */
+		//srand( 567 );
+		/* Create one of the two tasks. */
+		xTaskCreate(	vTask1,		/* Pointer to the function that implements the task. */
+						"Task 1",	/* Text name for the task.  This is to facilitate debugging only. */
+						240,		/* Stack depth in words. */
+						(void*)pcTaskName1,		/* We are not using the task parameter. */
+						2,			/* This task will run at priority 1. */
+						NULL );		/* We are not using the task handle. */
 
-	/* Check the queue was created successfully. */
+		/* Create the other task in exactly the same way. */
+		xTaskCreate( vTask2, "Task 2", 240, (void*)pcTaskName2, 1, &xTask2Handle );
 
-	/* Create two instances of the tasks that send messages to the gatekeeper.
-	The	index to the string they attempt to write is passed in as the task
-	parameter (4th parameter to xTaskCreate()).  The tasks are created at
-	different priorities so some pre-emption will occur. */
 
-	/* Create the gatekeeper task.  This is the only task that is permitted
-	to access standard out. */
-	xTaskCreate( prvStdioGatekeeperTask, "Gatekeeper", 240, NULL, 0, NULL );
 
-	/* Start the scheduler so the created tasks start executing. */
-	vTaskStartScheduler();
+		// Create Tasks
+		xTaskCreate(vTask3, 		"Task_3", 		240, NULL, 1, NULL);
+		xTaskCreate(vTask4, 		"Task_4", 		240, NULL, 3, NULL);
+		/* Create the gatekeeper task.  This is the only task that is permitted
+		to access standard out. */
+		xTaskCreate( prvStdioGatekeeperTask, "Gatekeeper", 240, NULL, 0, NULL );
+		xTaskCreate( prvUARTStdioGatekeeperTask, "UARTGatekeeper", 240, NULL, 0, NULL );
+
+		/* Start the scheduler so the created tasks start executing. */
+		vTaskStartScheduler();
+    }
+
+    while(1);
 
 }
 
 static void prvStdioGatekeeperTask( void *pvParameters )
 {
-char *pcMessageToPrint;
-static char cBuffer[ mainMAX_MSG_LEN ];
+char * pcMessageToPrint;
 
 	/* This is the only task that is allowed to write to the terminal output.
 	Any other task wanting to write to the output does not access the terminal
@@ -330,10 +337,36 @@ static char cBuffer[ mainMAX_MSG_LEN ];
 		/* There is no need to check the return	value as the task will block
 		indefinitely and only run again when a message has arrived.  When the
 		next line is executed there will be a message to be output. */
-		sprintf( cBuffer, "%s", pcMessageToPrint );
-		trace_printf( "%s\n",cBuffer );
+		//sprintf( cBuffer, "%s", pcMessageToPrint );
+		trace_printf( "%s\n",pcMessageToPrint );
 		vTracePrint(ue2, "IOGK");
 
+		/* Now simply go back to wait for the next message. */
+	}
+}
+
+static void prvUARTStdioGatekeeperTask( void *pvParameters )
+{
+
+	char  pcUARTMessageToPrint;
+	MX_USART2_UART_Init();
+
+	/* This is the only task that is allowed to write to the terminal output.
+	Any other task wanting to write to the output does not access the terminal
+	directly, but instead sends the output to this task.  As only one task
+	writes to standard out there are no mutual exclusion or serialization issues
+	to consider within this task itself. */
+	for( ;; )
+	{
+		/* Wait for a message to arrive. */
+		xQueueReceive( xUARTPrintQueue, &pcUARTMessageToPrint, portMAX_DELAY );
+
+		/* There is no need to check the return	value as the task will block
+		indefinitely and only run again when a message has arrived.  When the
+		next line is executed there will be a message to be output. */
+		//trace_printf( "%s\n",*pcUARTMessageToPrint );
+		vTracePrint(ue3, "UART");
+		USART2 ->DR = pcUARTMessageToPrint & 0xFF;
 		/* Now simply go back to wait for the next message. */
 	}
 }
@@ -460,15 +493,32 @@ void vTask3 (void *pvParameters)
 	}
 }
 
+
 void vTask4 (void *pvParameters)
 {
+	static char sharp = '#';
+	char *sharpPt = &sharp;
 	static char dot = '.';
 	char *dotPt = &dot;
+	portBASE_TYPE	xStatus;
+
+	BSP_PB_Init();
+
 	while(1)
 	{
-		USART2 ->DR = *dotPt & 0xFF;
-		// Wait for 100ms
-		vTaskDelay(100);
+		// Wait here for Semaphore with 100ms timeout
+		xStatus = xSemaphoreTake(xSem, 100);
+		// Test the result of the take attempt
+		if (xStatus == pdPASS)
+		{
+			// The semaphore was taken as expected
+			//USART2 ->DR = *sharpPt & 0xFF;
+			xQueueSendToBack( xUARTPrintQueue, sharpPt, 0 );
+		}
+		else{
+			//USART2 ->DR = *dotPt & 0xFF;
+			xQueueSendToBack( xUARTPrintQueue, dotPt, 0 );
+		}
 	}
 }
 /*-----------------------------------------------------------*/
@@ -531,24 +581,27 @@ void BSP_PB_Init(){
 	HAL_GPIO_Init(GPIOA, &GPIO_InitStructure);
 
 	/* Enable and set EXTI Line0 Interrupt to the lowest priority */
-	NVIC_SetPriority(EXTI0_IRQn, configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY + 1 );
+	NVIC_SetPriority(EXTI0_IRQn, configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY );
 	/* Enable the interrupt. */
 	NVIC_EnableIRQ( EXTI0_IRQn );
 
 }
-static char sharp = '#';
-char *sharpPt = &sharp;
+
 void EXTI0_IRQHandler(void)
 {
-
+	portBASE_TYPE xHigherPriorityTaskWoken = pdFALSE;
 	// Test for line 13 pending interrupt
 	if ((EXTI->PR & EXTI_PR_PR0_Msk) != 0)
 	{
+
 		// Clear pending bit 13 by writing a '1'
 		EXTI->PR |= EXTI_PR_PR0;
 
-		// Do what you need
-		USART2 ->DR = *sharpPt & 0xFF;
+		// Release the semaphore
+		xSemaphoreGiveFromISR(xSem, &xHigherPriorityTaskWoken);
+
+		// Perform a context switch to the waiting task
+		portEND_SWITCHING_ISR( xHigherPriorityTaskWoken );
 	}
 }
 static void MX_USART2_UART_Init(void)
