@@ -219,6 +219,8 @@ main(int argc, char* argv[])
 	/* lets create the binary semaphore dynamically */
 
 	xMutex = xSemaphoreCreateMutex();
+	// Give a nice name to the Mutex in the trace recorder
+	vTraceSetMutexName(xMutex, "Console Mutex");
 	srand( 609 );
 
 	if( xMutex != NULL )
