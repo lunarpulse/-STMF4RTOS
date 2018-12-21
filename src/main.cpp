@@ -38,6 +38,7 @@
 #include "BlinkLed.h"
 #include "FreeRTOS.h"
 #include "task.h"
+#include "timers.h"
 #include "semphr.h"
 #include "stm32f4xx_hal_usart.h"
 // ----------------------------------------------------------------------------
@@ -180,7 +181,7 @@ void vTask1( void *pvParameters );
 void vTask2( void *pvParameters );
 void vTask3( void *pvParameters );
 void vTask4( void *pvParameters );
-
+void vTaskTimer (TimerHandle_t xTimer);
 /* The gatekeeper task itself. */
 static void prvStdioGatekeeperTask( void *pvParameters );
 static void prvUARTStdioGatekeeperTask( void *pvParameters )
@@ -205,7 +206,12 @@ UART_HandleTypeDef huart2;
 // Kernel objects
 xSemaphoreHandle xSem;
 // Trace User Events Channels
-traceString ue1, ue2, ue3;
+traceString ue1, ue2, ue3, uet;
+// Declare Timer Object
+TimerHandle_t	my_timer;
+TickType_t	ticks;
+// Timer callback function
+void vTaskTimer		(TimerHandle_t xTimer);
 
 static volatile unsigned long ulIdleCount = 0UL;
 
@@ -287,6 +293,16 @@ main(int argc, char* argv[])
     xPrintQueue = xQueueCreate( 5, sizeof( char * ) );
     xUARTPrintQueue = xQueueCreate( 5, sizeof( char * ) );
 
+	// Create Timer object
+	my_timer = xTimerCreate("my_timer", 5, pdTRUE, NULL, vTaskTimer);
+
+	// Start Timer
+	xTimerStart(my_timer, 0);
+	ticks = xTimerGetExpiryTime(my_timer);
+
+	// Register the Trace User Event Channels
+	uet = xTraceRegisterString("ticks");
+
     if( xUARTPrintQueue != NULL && xPrintQueue != NULL ){
 		/* The tasks are going to use a pseudo random delay, seed the random number
 		generator. */
@@ -318,6 +334,22 @@ main(int argc, char* argv[])
 
     while(1);
 
+}
+/*
+ * Timer Callback
+ */
+void vTaskTimer (TimerHandle_t xTimer)
+{
+	static char carrot = '^';
+	char *carrotPt = &carrot;
+
+	vTracePrintF(uet, (char *)"%d", (uint32_t)ticks);
+
+	xQueueSendToBack( xPrintQueue, "\tTimer callback\r\n", 0 );
+	xQueueSendToBack( xUARTPrintQueue, carrotPt, 0 );
+
+	ticks = xTimerGetExpiryTime(my_timer);
+	blinkLeds[1].toggle ();
 }
 
 static void prvStdioGatekeeperTask( void *pvParameters )
