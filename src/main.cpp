@@ -407,7 +407,7 @@ void vTaskEV0 (void *pvParameters)
 		// - bit #0
 		// - Clear on Exit
 		// - Wait for All bits (AND)
-		xEventGroupWaitBits(myEventGroup, BIT0, pdTRUE, pdTRUE, portMAX_DELAY);
+		xEventGroupWaitBits(myEventGroup, (BIT0 | BIT1), pdTRUE, pdTRUE, portMAX_DELAY);
 
 		// If the bit is set
 		xQueueSendToBack( xUARTPrintQueue, dollarPt, 0 );
@@ -428,7 +428,7 @@ void vTaskEV1 (void *pvParameters)
 		// - bit #0
 		// Clear on Exit
 		// Wait for All bits (AND)
-		xEventGroupWaitBits(myEventGroup, BIT0, pdTRUE, pdTRUE, portMAX_DELAY);
+		xEventGroupWaitBits(myEventGroup, (BIT0 | BIT1), pdTRUE, pdFALSE, portMAX_DELAY);
 
 		// If the bit is set
 		xQueueSendToBack( xUARTPrintQueue, attaPt, 0 );
