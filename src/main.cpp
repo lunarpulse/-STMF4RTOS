@@ -36,7 +36,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "semphr.h"
-
+#include "stm32f4xx_hal_usart.h"
 
 // ----------------------------------------------------------------------------
 //
@@ -85,7 +85,7 @@ BlinkLed blinkLeds[1] =
 
 #elif defined(STM32F407xx)
 
-#warning "Assume a STM32F4-Discovery board, PD12-PD15, active high."
+// #warning "Assume a STM32F4-Discovery board, PD12-PD15, active high."
 
 #define BLINK_PORT_NUMBER         (3)
 #define BLINK_PIN_NUMBER_GREEN    (12)
@@ -156,6 +156,8 @@ BlinkLed blinkLeds[1] =
 
 void vTask1( void *pvParameters );
 void vTask2( void *pvParameters );
+void vTaskConsole (void *pvParameters);
+
 SemaphoreHandle_t xSemaphore = NULL;
 
 #define TEMP_CODE			0
@@ -185,11 +187,32 @@ static const xData xStructsToSend[ 4 ] =
 };
 
 #define mainMAX_MSG_LEN	( 80 )
-
+// Kernel Objects
+xQueueHandle	xConsoleQueue = NULL;
 QueueHandle_t xQueue = NULL;
+
+// Define the message_t type as an array of 60 char
+typedef uint8_t message_t[60];
+
+static void MX_USART2_UART_Init(void);
+static void Error_Handler(void);
+void SystemClock_Config(void);
+
+/* UART handler declaration */
+UART_HandleTypeDef huart2;
+
 int
 main(int argc, char* argv[])
 {
+	SystemInit();
+	SystemCoreClockUpdate();
+	HAL_Init();
+
+	SystemClock_Config();
+
+  /* Configure the system clock */
+  MX_USART2_UART_Init();
+
   // Send a greeting to the trace device (skipped on Release).
   trace_puts("Light Up!");
 
@@ -231,10 +254,19 @@ main(int argc, char* argv[])
 	trace_printf("Eclipse-FreeRTOS Project starting \n");
 	vTraceEnable(TRC_START);
 
+	vSemaphoreCreateBinary( xSemaphore );
+	vTraceSetSemaphoreName(xSemaphore, "xBSEM");
     /* The queue is created to hold a maximum of 3 structures of type xData. */
     xQueue = xQueueCreate( MAX_QUEUE, sizeof( xData ) );
+    vTraceSetQueueName(xQueue, "DataQueue");
 
-	if( xQueue != NULL )
+    // Create Queue to hold console messages
+	xConsoleQueue = xQueueCreate(10, sizeof(message_t *));
+
+	// Give a nice name to the Queue in the trace recorder
+	vTraceSetQueueName(xConsoleQueue, "Console Queue");
+
+	if( xQueue != NULL && xConsoleQueue!= NULL )
 	{
 		/* Create 3 instances of the task that will write to the queue.  The
 		parameter is used to pass the structure that the task should write to the
@@ -250,6 +282,11 @@ main(int argc, char* argv[])
 		/* Create the task that will read from the queue.  The task is created with
 		priority 1, so below the priority of the sender tasks. */
 		xTaskCreate( vGenReceiverHandler, "Receive-task", 240, NULL, 1, NULL );
+
+		// Create Tasks
+		xTaskCreate(vTask1, 		"Task_1", 	256, NULL, 2, NULL);
+		xTaskCreate(vTask2, 		"Task_2", 	256, NULL, 3, NULL);
+		xTaskCreate(vTaskConsole, 	"Task_Console", 256, NULL, 1, NULL);
 
 		/* Start the scheduler so the created tasks start executing. */
 		vTaskStartScheduler();
@@ -372,10 +409,13 @@ const portTickType xTicksToWait = 250 / portTICK_RATE_MS;
 
 void vTask1( void *pvParameters )
 {
-const char *pcTaskName = "Task 1 is running\n";
-volatile unsigned long ul;
-static unsigned int val;
-
+	const char *pcTaskName = "Task 1 is running\n";
+	static unsigned int val;
+	message_t 	message;
+	message_t	*pm;
+	portTickType	xLastWakeTime;
+	// Initialize timing
+	xLastWakeTime = xTaskGetTickCount();
 	/* As per most tasks, this task is implemented in an infinite loop. */
 	for( ;; )
 	{
@@ -388,23 +428,29 @@ static unsigned int val;
 		/* lets make the sema available */
 		 xSemaphoreGive( xSemaphore);
 
-		/* Delay for a period. */
-		for( ul = 0; ul < mainDELAY_LOOP_COUNT; ul++ )
-		{
-			/* This loop is just a very crude delay implementation.  There is
-			nothing to do in here.  Later exercises will replace this crude
-			loop with a proper delay/sleep function. */
-		}
+		// Prepare message
+		sprintf((char *)message, "With great power comes great responsibility\r\n");
+
+		// Send message to the Console Queue
+		pm = &message;
+		xQueueSendToBack(xConsoleQueue, &pm, 0);
+
+		// Wait here for 20ms since last wakeup
+		vTaskDelayUntil (&xLastWakeTime, (20/portTICK_RATE_MS));
+
 	}
 }
 /*-----------------------------------------------------------*/
 
 void vTask2( void *pvParameters )
 {
-const char *pcTaskName = "Task 2 is running\n";
-volatile unsigned long ul;
-static unsigned int val;
-
+	const char *pcTaskName = "Task 2 is running\n";
+	static unsigned int val;
+	message_t 	message;
+	message_t	*pm;
+	portTickType	xLastWakeTime;
+	// Initialize timing
+	xLastWakeTime = xTaskGetTickCount();
 	/* As per most tasks, this task is implemented in an infinite loop. */
 	for( ;; )
 	{
@@ -416,15 +462,202 @@ static unsigned int val;
 		/* lets make the sema available */
 		 xSemaphoreGive( xSemaphore);
 
-		/* Delay for a period. */
-	for( ul = 0; ul < mainDELAY_LOOP_COUNT; ul++ )
-		{
-			/* This loop is just a very crude delay implementation.  There is
-			nothing to do in here.  Later exercises will replace this crude
-			loop with a proper delay/sleep function. */
-		}
+		// Prepare message
+		 sprintf((char *)message, "#");
+
+		// Send message to Console Queue
+		pm = &message;
+		xQueueSendToBack(xConsoleQueue, &pm, 0);
+
+		// Wait here for 2ms since last wakeup
+		vTaskDelayUntil (&xLastWakeTime, (2/portTICK_RATE_MS));
+
 	}
 }
+
+/*
+ * Task_Console
+ */
+void vTaskConsole (void *pvParameters)
+{
+	message_t *message;
+	uint8_t * m;
+
+	while(1)
+	{
+		// Wait for something in the message Queue
+		xQueueReceive(xConsoleQueue, &message, portMAX_DELAY);
+
+		// Send message to console
+		//my_printf((const char *)message);
+		m = *message;
+		while (m && *m){
+				while ( __HAL_UART_GET_FLAG (&huart2 , UART_FLAG_TXE ) == RESET);
+				USART2 ->DR = *m++ & 0xFF;
+		}
+
+	}
+
+}
+/**
+  * @brief System Clock Configuration
+  * @retval None
+  */
+void SystemClock_Config(void)
+{
+
+  RCC_OscInitTypeDef RCC_OscInitStruct;
+  RCC_ClkInitTypeDef RCC_ClkInitStruct;
+
+    /**Configure the main internal regulator output voltage
+    */
+  __HAL_RCC_PWR_CLK_ENABLE();
+
+  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
+
+    /**Initializes the CPU, AHB and APB busses clocks
+    */
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+  RCC_OscInitStruct.PLL.PLLM = 8;
+  RCC_OscInitStruct.PLL.PLLN = 336;
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+  RCC_OscInitStruct.PLL.PLLQ = 7;
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+  {
+	  Error_Handler();
+  }
+
+    /**Initializes the CPU, AHB and APB busses clocks
+    */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
+
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_5) != HAL_OK)
+  {
+	  Error_Handler();
+  }
+
+    /**Configure the Systick interrupt time
+    */
+  HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq()/1000);
+
+    /**Configure the Systick
+    */
+  HAL_SYSTICK_CLKSourceConfig(SYSTICK_CLKSOURCE_HCLK);
+
+  /* SysTick_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(SysTick_IRQn, 0, 0);
+}
+
+static void MX_USART2_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART2_Init 0 */
+
+  /* USER CODE END USART2_Init 0 */
+
+  /* USER CODE BEGIN USART2_Init 1 */
+
+  /* USER CODE END USART2_Init 1 */
+  huart2.Instance = USART2;
+  huart2.Init.BaudRate = 9600;
+  huart2.Init.WordLength = UART_WORDLENGTH_8B;
+  huart2.Init.StopBits = UART_STOPBITS_1;
+  huart2.Init.Parity = UART_PARITY_NONE;
+  huart2.Init.Mode = UART_MODE_TX_RX;
+  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART2_Init 2 */
+
+  /* USER CODE END USART2_Init 2 */
+
+}
+void HAL_UART_MspInit(UART_HandleTypeDef* huart)
+{
+
+  GPIO_InitTypeDef GPIO_InitStruct = {0,0,0,0,0};
+  if(huart->Instance==USART2)
+  {
+  /* USER CODE BEGIN USART2_MspInit 0 */
+
+  /* USER CODE END USART2_MspInit 0 */
+    /* Peripheral clock enable */
+    __HAL_RCC_USART2_CLK_ENABLE();
+
+    __HAL_RCC_GPIOA_CLK_ENABLE();
+    /**USART2 GPIO Configuration
+    PA2     ------> USART2_TX
+    PA3     ------> USART2_RX
+    */
+    GPIO_InitStruct.Pin = GPIO_PIN_2|GPIO_PIN_3;
+    GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull = GPIO_PULLUP;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+    GPIO_InitStruct.Alternate = GPIO_AF7_USART2;
+    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+    /* USART2 interrupt Init */
+    HAL_NVIC_SetPriority(USART2_IRQn, 5, 0);
+    HAL_NVIC_EnableIRQ(USART2_IRQn);
+  /* USER CODE BEGIN USART2_MspInit 1 */
+
+  /* USER CODE END USART2_MspInit 1 */
+  }
+
+}
+
+/**
+* @brief UART MSP De-Initialization
+* This function freeze the hardware resources used in this example
+* @param huart: UART handle pointer
+* @retval None
+*/
+
+void HAL_UART_MspDeInit(UART_HandleTypeDef* huart)
+{
+
+  if(huart->Instance==USART2)
+  {
+  /* USER CODE BEGIN USART2_MspDeInit 0 */
+
+  /* USER CODE END USART2_MspDeInit 0 */
+    /* Peripheral clock disable */
+    __HAL_RCC_USART2_CLK_DISABLE();
+
+    /**USART2 GPIO Configuration
+    PA2     ------> USART2_TX
+    PA3     ------> USART2_RX
+    */
+    HAL_GPIO_DeInit(GPIOA, GPIO_PIN_2|GPIO_PIN_3);
+
+    /* USART2 interrupt DeInit */
+    HAL_NVIC_DisableIRQ(USART2_IRQn);
+  /* USER CODE BEGIN USART2_MspDeInit 1 */
+
+  /* USER CODE END USART2_MspDeInit 1 */
+  }
+
+}
+
+static void Error_Handler(void)
+{
+  /* Turn LED5 on */
+  while(1)
+  {
+  }
+}
+
 /*-----------------------------------------------------------*/
 
 void vApplicationMallocFailedHook( void )
