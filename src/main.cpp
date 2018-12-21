@@ -39,8 +39,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "semphr.h"
-
-
+#include "stm32f4xx_hal_usart.h"
 // ----------------------------------------------------------------------------
 //
 // Standalone STM32F4 led blink sample (trace via DEBUG).
@@ -157,8 +156,9 @@ task are created. */
 
 /* The gatekeeper task itself. */
 static void prvStdioGatekeeperTask( void *pvParameters );
+static void MX_USART2_UART_Init(void);
+static void Error_Handler(void);
 
-void Error_Handler(void);
 void SystemClock_Config(void);
 
 /* Define the strings that the tasks and interrupt will print out via the gatekeeper. */
@@ -183,14 +183,21 @@ xQueueHandle xPrintQueue;
 
 void vTask1( void *pvParameters );
 void vTask2( void *pvParameters );
+void vTask3( void *pvParameters );
+void vTask4( void *pvParameters );
+
 extern "C" void vApplicationIdleHook( void );
 extern "C" void vApplicationTickHook( void );
+void BSP_PB_Init();
+extern "C" void EXTI0_IRQHandler(void);
 
 SemaphoreHandle_t xSemaphore = NULL;
 
 const char* pcTaskName2 = "Task 2 is running\n";
 
 xTaskHandle xTask2Handle;
+/* UART handler declaration */
+UART_HandleTypeDef huart2;
 
 // Trace User Events Channels
 traceString ue1, ue2;
@@ -200,9 +207,16 @@ static volatile unsigned long ulIdleCount = 0UL;
 int
 main(int argc, char* argv[])
 {
+//	SystemInit();
+//	SystemCoreClockUpdate();
 
 	HAL_Init();
+	/* Configure the system clock */
 	SystemClock_Config();
+
+	BSP_PB_Init();
+	MX_USART2_UART_Init();
+
   // Send a greeting to the trace device (skipped on Release).
   trace_puts("Light Up!");
 
@@ -210,8 +224,8 @@ main(int argc, char* argv[])
   // at high speed.
   trace_printf("System clock: %u Hz\n", SystemCoreClock);
 
-  Timer timer;
-  timer.start ();
+  //Timer timer;
+  //timer.start ();
 
   // Perform all necessary initialisations for the LEDs.
   for (size_t i = 0; i < (sizeof(blinkLeds) / sizeof(blinkLeds[0])); ++i)
@@ -259,6 +273,11 @@ main(int argc, char* argv[])
 	/* Create the other task in exactly the same way. */
 	xTaskCreate( vTask2, "Task 2", 240, (void*)pcTaskName2, 1, &xTask2Handle );
 
+
+
+	// Create Tasks
+	xTaskCreate(vTask3, 		"Task_3", 		256, NULL, 1, NULL);
+	xTaskCreate(vTask4, 		"Task_4", 		256, NULL, 2, NULL);
 
 /* lets create the binary semaphore dynamically */
 	xSemaphore = xSemaphoreCreateBinary();
@@ -425,12 +444,39 @@ xLastWakeTime = xTaskGetTickCount();
 	}
 
 }
+
+void vTask3 (void *pvParameters)
+{
+	TickType_t xLastWakeTime;
+	const TickType_t xFrequency = 200;
+	xLastWakeTime = xTaskGetTickCount();
+	while(1)
+	{
+		// LED toggle
+		blinkLeds[3].toggle ();
+
+		// Wait for 200ms
+		vTaskDelayUntil(&xLastWakeTime, xFrequency);
+	}
+}
+
+void vTask4 (void *pvParameters)
+{
+	static char dot = '.';
+	char *dotPt = &dot;
+	while(1)
+	{
+		USART2 ->DR = *dotPt & 0xFF;
+		// Wait for 100ms
+		vTaskDelay(100);
+	}
+}
 /*-----------------------------------------------------------*/
 void SystemClock_Config(void)
 {
-  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
-  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
-  RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};
+  RCC_OscInitTypeDef RCC_OscInitStruct = {0,0,0,0,0,0,0,0,0,0,0,0};
+  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0,0,0,0,0};
+  RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0,0,0,0};
 
   /**Configure the main internal regulator output voltage
   */
@@ -470,6 +516,133 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+}
+
+void BSP_PB_Init(){
+	GPIO_InitTypeDef   GPIO_InitStructure;
+
+	/* Enable GPIOA clock */
+	__HAL_RCC_GPIOA_CLK_ENABLE();
+
+	/* Configure PA0 pin as input floating */
+	GPIO_InitStructure.Mode = GPIO_MODE_IT_FALLING;
+	GPIO_InitStructure.Pull = GPIO_NOPULL;
+	GPIO_InitStructure.Pin = GPIO_PIN_0;
+	HAL_GPIO_Init(GPIOA, &GPIO_InitStructure);
+
+	/* Enable and set EXTI Line0 Interrupt to the lowest priority */
+	NVIC_SetPriority(EXTI0_IRQn, configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY + 1 );
+	/* Enable the interrupt. */
+	NVIC_EnableIRQ( EXTI0_IRQn );
+
+}
+static char sharp = '#';
+char *sharpPt = &sharp;
+void EXTI0_IRQHandler(void)
+{
+
+	// Test for line 13 pending interrupt
+	if ((EXTI->PR & EXTI_PR_PR0_Msk) != 0)
+	{
+		// Clear pending bit 13 by writing a '1'
+		EXTI->PR |= EXTI_PR_PR0;
+
+		// Do what you need
+		USART2 ->DR = *sharpPt & 0xFF;
+	}
+}
+static void MX_USART2_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART2_Init 0 */
+
+  /* USER CODE END USART2_Init 0 */
+
+  /* USER CODE BEGIN USART2_Init 1 */
+
+  /* USER CODE END USART2_Init 1 */
+  huart2.Instance = USART2;
+  huart2.Init.BaudRate = 9600;
+  huart2.Init.WordLength = UART_WORDLENGTH_8B;
+  huart2.Init.StopBits = UART_STOPBITS_1;
+  huart2.Init.Parity = UART_PARITY_NONE;
+  huart2.Init.Mode = UART_MODE_TX_RX;
+  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART2_Init 2 */
+
+  /* USER CODE END USART2_Init 2 */
+
+}
+void HAL_UART_MspInit(UART_HandleTypeDef* huart)
+{
+
+  GPIO_InitTypeDef GPIO_InitStruct = {0,0,0,0,0};
+  if(huart->Instance==USART2)
+  {
+  /* USER CODE BEGIN USART2_MspInit 0 */
+
+  /* USER CODE END USART2_MspInit 0 */
+    /* Peripheral clock enable */
+    __HAL_RCC_USART2_CLK_ENABLE();
+
+    __HAL_RCC_GPIOA_CLK_ENABLE();
+    /**USART2 GPIO Configuration
+    PA2     ------> USART2_TX
+    PA3     ------> USART2_RX
+    */
+    GPIO_InitStruct.Pin = GPIO_PIN_2|GPIO_PIN_3;
+    GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull = GPIO_PULLUP;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+    GPIO_InitStruct.Alternate = GPIO_AF7_USART2;
+    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+    /* USART2 interrupt Init */
+    HAL_NVIC_SetPriority(USART2_IRQn, 5, 0);
+    HAL_NVIC_EnableIRQ(USART2_IRQn);
+  /* USER CODE BEGIN USART2_MspInit 1 */
+
+  /* USER CODE END USART2_MspInit 1 */
+  }
+
+}
+
+/**
+* @brief UART MSP De-Initialization
+* This function freeze the hardware resources used in this example
+* @param huart: UART handle pointer
+* @retval None
+*/
+
+void HAL_UART_MspDeInit(UART_HandleTypeDef* huart)
+{
+
+  if(huart->Instance==USART2)
+  {
+  /* USER CODE BEGIN USART2_MspDeInit 0 */
+
+  /* USER CODE END USART2_MspDeInit 0 */
+    /* Peripheral clock disable */
+    __HAL_RCC_USART2_CLK_DISABLE();
+
+    /**USART2 GPIO Configuration
+    PA2     ------> USART2_TX
+    PA3     ------> USART2_RX
+    */
+    HAL_GPIO_DeInit(GPIOA, GPIO_PIN_2|GPIO_PIN_3);
+
+    /* USART2 interrupt DeInit */
+    HAL_NVIC_DisableIRQ(USART2_IRQn);
+  /* USER CODE BEGIN USART2_MspDeInit 1 */
+
+  /* USER CODE END USART2_MspDeInit 1 */
+  }
+
 }
 
 void Error_Handler(void)
