@@ -38,6 +38,7 @@
 #include "BlinkLed.h"
 #include "FreeRTOS.h"
 #include "task.h"
+#include "event_groups.h"
 #include "semphr.h"
 #include "stm32f4xx_hal_usart.h"
 // ----------------------------------------------------------------------------
@@ -176,10 +177,13 @@ xQueueHandle xUARTPrintQueue;
 #pragma GCC diagnostic ignored "-Wmissing-declarations"
 #pragma GCC diagnostic ignored "-Wreturn-type"
 
+void vTaskEVT (void *pvParameters);
 void vTask1( void *pvParameters );
 void vTask2( void *pvParameters );
 void vTask3( void *pvParameters );
 void vTask4( void *pvParameters );
+void vTaskEV0 (void *pvParameters);
+void vTaskEV1 (void *pvParameters);
 
 /* The gatekeeper task itself. */
 static void prvStdioGatekeeperTask( void *pvParameters );
@@ -194,7 +198,9 @@ extern "C" void vApplicationTickHook( void );
 void BSP_PB_Init();
 extern "C" void EXTI0_IRQHandler(void);
 
-SemaphoreHandle_t xSemaphore = NULL;
+// Define Event Group flags
+#define	BIT0	( (EventBits_t)( 0x01 <<0) )   // Not mandatory
+#define BIT1	( (EventBits_t)( 0x01 <<1) )   // Provide friendly alias for
 
 const char* pcTaskName2 = "Task 2 is running\n";
 
@@ -204,8 +210,10 @@ UART_HandleTypeDef huart2;
 
 // Kernel objects
 xSemaphoreHandle xSem;
+EventGroupHandle_t myEventGroup;
+SemaphoreHandle_t xSemaphore = NULL;
 // Trace User Events Channels
-traceString ue1, ue2, ue3;
+traceString ue1, ue2, ue3, ueg;
 
 static volatile unsigned long ulIdleCount = 0UL;
 
@@ -279,6 +287,11 @@ main(int argc, char* argv[])
 	/* lets make the semaphore token available for the first time */
 	xSemaphoreGive( xSemaphore);
 
+	// Create Event Group                   // <-- Create Event Group here
+	myEventGroup = xEventGroupCreate();
+
+	// Register the Trace User Event Channels
+	ueg = xTraceRegisterString("state");
 	/* Start the scheduler so our tasks start executing. */
 	//vTaskStartScheduler();
 
@@ -291,7 +304,13 @@ main(int argc, char* argv[])
 		/* The tasks are going to use a pseudo random delay, seed the random number
 		generator. */
 		//srand( 567 );
-		/* Create one of the two tasks. */
+		// Create Tasks
+		xTaskCreate( prvUARTStdioGatekeeperTask, "UARTGatekeeper", 240, NULL, 0, NULL );
+
+		xTaskCreate(vTaskEVT, 		"Task_EVT", 		256, NULL, 1, NULL);
+		xTaskCreate(vTaskEV0, 		"vTaskEV0", 		256, NULL, 2, NULL);
+		xTaskCreate(vTaskEV1, 		"vTaskEV1", 		256, NULL, 3, NULL);
+
 		xTaskCreate(	vTask1,		/* Pointer to the function that implements the task. */
 						"Task 1",	/* Text name for the task.  This is to facilitate debugging only. */
 						240,		/* Stack depth in words. */
@@ -301,16 +320,12 @@ main(int argc, char* argv[])
 
 		/* Create the other task in exactly the same way. */
 		xTaskCreate( vTask2, "Task 2", 240, (void*)pcTaskName2, 1, &xTask2Handle );
-
-
-
-		// Create Tasks
 		xTaskCreate(vTask3, 		"Task_3", 		240, NULL, 1, NULL);
 		xTaskCreate(vTask4, 		"Task_4", 		240, NULL, 3, NULL);
+
 		/* Create the gatekeeper task.  This is the only task that is permitted
 		to access standard out. */
 		xTaskCreate( prvStdioGatekeeperTask, "Gatekeeper", 240, NULL, 0, NULL );
-		xTaskCreate( prvUARTStdioGatekeeperTask, "UARTGatekeeper", 240, NULL, 0, NULL );
 
 		/* Start the scheduler so the created tasks start executing. */
 		vTaskStartScheduler();
@@ -320,6 +335,106 @@ main(int argc, char* argv[])
 
 }
 
+/*
+ *	Task_1 - State machine
+ */
+void vTaskEVT (void *pvParameters)
+{
+	uint8_t state;
+
+	state = 0;
+
+	while(1)
+	{
+		// LED toggle
+		blinkLeds[2].toggle ();
+
+		switch(state)
+		{
+			case 0:
+			{
+				vTracePrintF(ueg, "%d", state);
+				xEventGroupClearBits(myEventGroup, BIT0 | BIT1);  // [0 0]
+
+				state = 1;
+				break;
+			}
+
+			case 1:
+			{
+				vTracePrintF(ueg, "%d", state);
+				xEventGroupSetBits(myEventGroup, BIT0);          // [x 1]
+
+				state = 2;
+				break;
+			}
+
+			case 2:
+			{
+				vTracePrintF(ueg, "%d", state);
+				xEventGroupSetBits(myEventGroup, BIT1);          // [1 x]
+
+				state = 3;
+				break;
+			}
+
+			case 3:
+			{
+				vTracePrintF(ueg, "%d", state);
+				xEventGroupSetBits(myEventGroup, BIT0 | BIT1);  // [1 1]
+
+				state = 0;
+				break;
+			}
+		}
+
+
+		// Wait for 20ms
+		vTaskDelay(20);
+	}
+}
+/*
+ *	vTaskEV0
+ */
+void vTaskEV0 (void *pvParameters)
+{
+	static char dollar = '$';
+	char *dollarPt = &dollar;
+
+	while(1)
+	{
+		// Wait for myEventGroup :
+		// - bit #0
+		// - Clear on Exit
+		// - Wait for All bits (AND)
+		xEventGroupWaitBits(myEventGroup, BIT0, pdTRUE, pdTRUE, portMAX_DELAY);
+
+		// If the bit is set
+		xQueueSendToBack( xUARTPrintQueue, dollarPt, 0 );
+	}
+}
+
+/*
+ * vTaskEV1
+ */
+void vTaskEV1 (void *pvParameters)
+{
+	static char atta = '@';
+	char *attaPt = &atta;
+
+	while(1)
+	{
+		// Wait for myEventGroup
+		// - bit #0
+		// Clear on Exit
+		// Wait for All bits (AND)
+		xEventGroupWaitBits(myEventGroup, BIT0, pdTRUE, pdTRUE, portMAX_DELAY);
+
+		// If the bit is set
+		xQueueSendToBack( xUARTPrintQueue, attaPt, 0 );
+
+	}
+}
 static void prvStdioGatekeeperTask( void *pvParameters )
 {
 char * pcMessageToPrint;

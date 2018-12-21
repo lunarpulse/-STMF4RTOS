@@ -216,7 +216,7 @@ extern "C" {
  *
  * Default value is 0 (excluded) since dependent on event_groups.c
  *****************************************************************************/
-#define TRC_CFG_INCLUDE_EVENT_GROUP_EVENTS 0
+#define TRC_CFG_INCLUDE_EVENT_GROUP_EVENTS 1
 
  /*****************************************************************************
  * TRC_CFG_INCLUDE_TIMER_EVENTS
