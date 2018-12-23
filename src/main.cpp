@@ -213,7 +213,7 @@ xSemaphoreHandle xSem;
 EventGroupHandle_t myEventGroup;
 SemaphoreHandle_t xSemaphore = NULL;
 // Trace User Events Channels
-traceString ue1, ue2, ue3, ueg;
+//traceString ue1, ue2, ue3, ueg;
 
 static volatile unsigned long ulIdleCount = 0UL;
 
@@ -267,22 +267,22 @@ main(int argc, char* argv[])
 	trace_printf("Eclipse-FreeRTOS Project starting \n");
 
 	 // Starting tracealyser
-		vTraceEnable(TRC_START);
+	//		vTraceEnable(TRC_START);
 		// Create Semaphore object
 		xSem = xSemaphoreCreateBinary();
 
 		// Give a nice name to the Semaphore in the trace recorder
-		vTraceSetSemaphoreName(xSem, "xSEM");
+		//		vTraceSetSemaphoreName(xSem, "xSEM");
 
 	// Register the Trace User Event Channels
-		 ue1 = xTraceRegisterString("LED");
-		 ue2 = xTraceRegisterString("msg");
-		 ue3 = xTraceRegisterString("UART");
+		//		 ue1 = xTraceRegisterString("LED");
+		//		 ue2 = xTraceRegisterString("msg");
+		//		 ue3 = xTraceRegisterString("UART");
 	const char* pcTaskName1 = "Task 1 is running\n";
 
 	/* lets create the binary semaphore dynamically */
 	xSemaphore = xSemaphoreCreateBinary();
-	vTraceSetSemaphoreName(xSemaphore, "xSEMBIN");
+	//	vTraceSetSemaphoreName(xSemaphore, "xSEMBIN");
 
 	/* lets make the semaphore token available for the first time */
 	xSemaphoreGive( xSemaphore);
@@ -291,7 +291,7 @@ main(int argc, char* argv[])
 	myEventGroup = xEventGroupCreate();
 
 	// Register the Trace User Event Channels
-	ueg = xTraceRegisterString("state");
+	//	ueg = xTraceRegisterString("state");
 	/* Start the scheduler so our tasks start executing. */
 	//vTaskStartScheduler();
 
@@ -353,7 +353,7 @@ void vTaskEVT (void *pvParameters)
 		{
 			case 0:
 			{
-				vTracePrintF(ueg, "%d", state);
+				//				vTracePrintF(ueg, "%d", state);
 				xEventGroupClearBits(myEventGroup, BIT0 | BIT1);  // [0 0]
 
 				state = 1;
@@ -362,7 +362,7 @@ void vTaskEVT (void *pvParameters)
 
 			case 1:
 			{
-				vTracePrintF(ueg, "%d", state);
+				//				vTracePrintF(ueg, "%d", state);
 				xEventGroupSetBits(myEventGroup, BIT0);          // [x 1]
 
 				state = 2;
@@ -371,7 +371,7 @@ void vTaskEVT (void *pvParameters)
 
 			case 2:
 			{
-				vTracePrintF(ueg, "%d", state);
+				//				vTracePrintF(ueg, "%d", state);
 				xEventGroupSetBits(myEventGroup, BIT1);          // [1 x]
 
 				state = 3;
@@ -380,7 +380,7 @@ void vTaskEVT (void *pvParameters)
 
 			case 3:
 			{
-				vTracePrintF(ueg, "%d", state);
+				//				vTracePrintF(ueg, "%d", state);
 				xEventGroupSetBits(myEventGroup, BIT0 | BIT1);  // [1 1]
 
 				state = 0;
@@ -454,7 +454,7 @@ char * pcMessageToPrint;
 		next line is executed there will be a message to be output. */
 		//sprintf( cBuffer, "%s", pcMessageToPrint );
 		trace_printf( "%s\n",pcMessageToPrint );
-		vTracePrint(ue2, "IOGK");
+		//	vTracePrint(ue2, "IOGK");
 
 		/* Now simply go back to wait for the next message. */
 	}
@@ -480,7 +480,7 @@ static void prvUARTStdioGatekeeperTask( void *pvParameters )
 		indefinitely and only run again when a message has arrived.  When the
 		next line is executed there will be a message to be output. */
 		//trace_printf( "%s\n",*pcUARTMessageToPrint );
-		vTracePrint(ue3, "UART");
+		//	vTracePrint(ue3, "UART");
 		USART2 ->DR = pcUARTMessageToPrint & 0xFF;
 		/* Now simply go back to wait for the next message. */
 	}
@@ -532,7 +532,7 @@ xLastWakeTime = xTaskGetTickCount();
 	      blinkLeds[(++val)%4].toggle ();
 
 		// Send count value into trace UEC
-		vTracePrintF(ue1, "%d", val);
+	      //vTracePrintF(ue1, "%d", val);
 		/* lets make the sema available */
 		 xSemaphoreGive( xSemaphore);
 		 if(val%4 == 0){
@@ -540,7 +540,7 @@ xLastWakeTime = xTaskGetTickCount();
 
 			 trace_printf( "%s after task2 priority increased by 2\n",pvParameters );
 			 vTaskPrioritySet(xTask2Handle, (uxPiority+2));
-			 vTracePrint(ue2, "PU");
+			 //vTracePrint(ue2, "PU");
 
 		 }else
 		 {
@@ -571,7 +571,7 @@ xLastWakeTime = xTaskGetTickCount();
 	  	 trace_printf( "%s, at idle count: %d\n",pcTaskName ,ulIdleCount );
 	      blinkLeds[(count++)%4].toggle ();
 	      // Send count value into trace UEC
-		vTracePrintF(ue1, "%d", count);
+		//vTracePrintF(ue1, "%d", count);
 		/* lets make the sema available */
 		 xSemaphoreGive( xSemaphore);
 
@@ -581,7 +581,7 @@ xLastWakeTime = xTaskGetTickCount();
 			xQueueSendToBack( xPrintQueue, &pcStringsToPrint[ 1 ], 0 );
 
 			trace_printf( "%s for 31 iterations and lower its priority\n", pcTaskName );
-			vTracePrint(ue2, "PD");
+			//vTracePrint(ue2, "PD");
 
 			count = 0;
 			//vTaskDelay(1000/portTICK_RATE_MS);

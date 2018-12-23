@@ -45,13 +45,19 @@ driver_include = [
     '#system/include/stm32f4-hal/Legacy',
     ]
 
-tracerecorderlib_include = [
-    '#TraceRecorderLib/include',
+SeggerConfig_include = [
+    '#SEGGER/Config',
 ]
 
+SeggerOS_include = [
+    '#SEGGER/OS',
+]
+SeggerSEGGER_include = [
+    '#SEGGER/SEGGER',
+]
 env['CPPPATH'] = [
     '#include',
-    ] + system_includes +config_include +tracerecorderlib_include+ middleware_include + driver_include
+    ] + system_includes +config_include + SeggerConfig_include+ SeggerOS_include+ SeggerSEGGER_include +middleware_include + driver_include
 
 # uC specific compiler flags
 cortex_m4_flags = [
@@ -120,13 +126,13 @@ env.Append(LINKFLAGS = cortex_m4_flags + [
 # support files (possibly can be done as LIB)
 system_sources =filtered_glob('#system/src/*/*.c', ['stm32f4xx_hal_msp_template.c','stm32f4xx_hal_timebase_rtc_alarm_template.c','stm32f4xx_hal_timebase_rtc_wakeup_template.c','stm32f4xx_hal_timebase_tim_template.c'])
 
-tracerecorderlib_sources= Glob('#TraceRecorderLib/*.c') 
+SEGGER_srouces= Glob('#SEGGER/*/*.c')
 freertos_src_sources = Glob( '#FreeRTOS/Source/*.c')
 freertos_pg_sources = Glob( '#FreeRTOS/Source/portable/GCC/ARM_CM4F/*.c')
 freertos_mm_sources = Glob( '#FreeRTOS/Source/portable/MemMang/*.c')
 startup_source = Glob('#system/src/cmsis/*.S')
  
-sources = system_sources + freertos_src_sources+ freertos_pg_sources+ freertos_mm_sources +tracerecorderlib_sources   + startup_source
+sources = system_sources + freertos_src_sources+ freertos_pg_sources+ freertos_mm_sources + SEGGER_srouces + startup_source
 
 
 program_sources = Glob('#src/*.c*')
