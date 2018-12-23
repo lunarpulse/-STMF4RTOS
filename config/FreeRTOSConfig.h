@@ -76,7 +76,7 @@ extern uint32_t SystemCoreClock;
 #define configMINIMAL_STACK_SIZE		( ( unsigned short ) 130 )
 #define configTOTAL_HEAP_SIZE			( ( size_t ) ( 40960 ) )
 #define configMAX_TASK_NAME_LEN			( 10 )
-#define configUSE_TRACE_FACILITY		1
+#define configUSE_TRACE_FACILITY		0
 #define configUSE_16_BIT_TICKS			0
 #define configIDLE_SHOULD_YIELD			1
 #define configUSE_MUTEXES				1
@@ -106,7 +106,7 @@ to exclude the API function. */
 #define INCLUDE_vTaskSuspend			1
 #define INCLUDE_vTaskDelayUntil			1
 #define INCLUDE_vTaskDelay				1
-/* SEGGER SYSTEM VIEW requirment */
+/* SEGGER SYSTEM VIEW requirement */
 #define INCLUDE_xTaskGetIdleTaskHandle  1
 #define INCLUDE_pxTaskGetStackStart     1
 
@@ -152,9 +152,7 @@ header file. */
 #define configASSERT( x ) if( ( x ) == 0 ) { taskDISABLE_INTERRUPTS(); for( ;; ) __asm volatile( "NOP" ); }
 #define INCLUDE_MODULE_TEST 0
 
-#if (configUSE_TRACE_FACILITY==1)
 #include "SEGGER_SYSVIEW_FreeRTOS.h"
-#endif
 
 #endif /* FREERTOS_CONFIG_H */
 

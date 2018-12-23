@@ -222,11 +222,11 @@ main(int argc, char* argv[])
 {
 //	SystemInit();
 //	SystemCoreClockUpdate();
-
 	HAL_Init();
 	/* Configure the system clock */
 	SystemClock_Config();
 
+	DWT->CTRL |= (1 << 0); //enebale CYCNT in Data watch point trace register
 
   // Send a greeting to the trace device (skipped on Release).
   trace_puts("Light Up!");
@@ -267,7 +267,10 @@ main(int argc, char* argv[])
 	trace_printf("Eclipse-FreeRTOS Project starting \n");
 
 	 // Starting tracealyser
-	//		vTraceEnable(TRC_START);
+	  NVIC_SetPriorityGrouping( 0 );
+
+	SEGGER_SYSVIEW_Conf();
+	SEGGER_SYSVIEW_Start();
 		// Create Semaphore object
 		xSem = xSemaphoreCreateBinary();
 
