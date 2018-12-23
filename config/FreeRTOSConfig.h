@@ -106,6 +106,9 @@ to exclude the API function. */
 #define INCLUDE_vTaskSuspend			1
 #define INCLUDE_vTaskDelayUntil			1
 #define INCLUDE_vTaskDelay				1
+/* SEGGER SYSTEM VIEW requirment */
+#define INCLUDE_xTaskGetIdleTaskHandle  1
+#define INCLUDE_pxTaskGetStackStart     1
 
 /* FreeRTOS+CLI definitions. */
 
@@ -150,7 +153,7 @@ header file. */
 #define INCLUDE_MODULE_TEST 0
 
 #if (configUSE_TRACE_FACILITY==1)
-#include "trcRecorder.h"
+#include "SEGGER_SYSVIEW_FreeRTOS.h"
 #endif
 
 #endif /* FREERTOS_CONFIG_H */
