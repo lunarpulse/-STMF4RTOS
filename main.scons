@@ -57,7 +57,7 @@ env['CPPPATH'] = [
 cortex_m4_flags = [
     '-mthumb',
     '-mcpu=cortex-m4',
-    '-mfloat-abi=softfp',
+    '-mfloat-abi=hard',
     '-mfpu=fpv4-sp-d16',
     ]
 

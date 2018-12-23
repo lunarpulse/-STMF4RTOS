@@ -500,8 +500,9 @@ void vApplicationStackOverflowHook( xTaskHandle *pxTask, signed char *pcTaskName
 void vApplicationIdleHook( void )
 {
 	ulIdleCount++;
-#if  0
-	HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI);
+#if  1
+	HAL_PWR_EnterSTOPMode(PWR_MAINREGULATOR_ON,PWR_STOPENTRY_WFI);
+	//HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFE);
 #endif
 }
 /*-----------------------------------------------------------*/
