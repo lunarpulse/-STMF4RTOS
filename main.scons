@@ -145,12 +145,19 @@ prg = env.Program(
  
 # binary file builder
 # Invoking: Cross ARM GNU Create Flash Image
-def arm_generator(source, target, env, for_signature):
+def arm_hex_generator(source, target, env, for_signature):
     return '$OBJCOPY -O ihex %s %s'%(source[0], target[0])
+def arm_bin_generator(source, target, env, for_signature):
+    return '$OBJCOPY -O binary %s %s'%(source[0], target[0])
 env.Append(BUILDERS = {
-    'Objcopy': Builder(
-        generator=arm_generator,
+    'ObjcopyElf': Builder(
+        generator=arm_hex_generator,
         suffix='.hex',
+        src_suffix='.elf'
+    ),
+    'ObjcopyBin': Builder(
+        generator=arm_bin_generator,
+        suffix='.bin',
         src_suffix='.elf'
     )
 })
@@ -166,5 +173,6 @@ env.Append(BUILDERS = {
     )
 })
 
-env.Objcopy(prg)
+env.ObjcopyElf(prg)
+env.ObjcopyBin(prg)
 env.Size(prg)
