@@ -174,5 +174,5 @@ env.Append(BUILDERS = {
 })
 
 env.ObjcopyElf(prg)
-env.ObjcopyBin(prg)
+#env.ObjcopyBin(prg)
 env.Size(prg)
