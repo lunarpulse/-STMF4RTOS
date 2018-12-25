@@ -229,11 +229,11 @@ main(int argc, char* argv[])
 	DWT->CTRL |= (1 << 0); //enebale CYCNT in Data watch point trace register
 
   // Send a greeting to the trace device (skipped on Release).
-  trace_puts("Light Up!");
+  //trace_puts("Light Up!");
 
   // At this stage the system clock should have already been configured
   // at high speed.
-  trace_printf("System clock: %u Hz\n", SystemCoreClock);
+  //trace_printf("System clock: %u Hz\n", SystemCoreClock);
 
   //Timer timer;
   //timer.start ();
@@ -262,9 +262,9 @@ main(int argc, char* argv[])
   //timer.sleep (BLINK_OFF_TICKS);
 
   ++seconds;
-  trace_printf ("Second %u\n", seconds);
+  //_printf ("Second %u\n", seconds);
 
-	trace_printf("Eclipse-FreeRTOS Project starting \n");
+	//trace_printf("Eclipse-FreeRTOS Project starting \n");
 
 	 // Starting tracealyser
 	  NVIC_SetPriorityGrouping( 0 );
@@ -456,7 +456,7 @@ char * pcMessageToPrint;
 		indefinitely and only run again when a message has arrived.  When the
 		next line is executed there will be a message to be output. */
 		//sprintf( cBuffer, "%s", pcMessageToPrint );
-		trace_printf( "%s\n",pcMessageToPrint );
+		//trace_printf( "%s\n",pcMessageToPrint );
 		//	vTracePrint(ue2, "IOGK");
 
 		/* Now simply go back to wait for the next message. */
@@ -531,7 +531,7 @@ xLastWakeTime = xTaskGetTickCount();
 		/* lets make the sema un-available */
 
 		 xSemaphoreTake( xSemaphore, ( TickType_t ) portMAX_DELAY );
-		 trace_printf( "%s, at idle count: %d\n",toSay ,ulIdleCount);
+		 //trace_printf( "%s, at idle count: %d\n",toSay ,ulIdleCount);
 	      blinkLeds[(++val)%4].toggle ();
 
 		// Send count value into trace UEC
@@ -541,7 +541,7 @@ xLastWakeTime = xTaskGetTickCount();
 		 if(val%4 == 0){
 			 xQueueSendToBack( xPrintQueue, &pcStringsToPrint[ 0 ], 0 );
 
-			 trace_printf( "%s after task2 priority increased by 2\n",pvParameters );
+			 //trace_printf( "%s after task2 priority increased by 2\n",pvParameters );
 			 vTaskPrioritySet(xTask2Handle, (uxPiority+2));
 			 //vTracePrint(ue2, "PU");
 
@@ -571,7 +571,7 @@ xLastWakeTime = xTaskGetTickCount();
 		/* Print out the name of this task. */
 		/* lets make the sema un-available */
 		 xSemaphoreTake( xSemaphore, ( TickType_t ) portMAX_DELAY );
-	  	 trace_printf( "%s, at idle count: %d\n",pcTaskName ,ulIdleCount );
+	  	 //trace_printf( "%s, at idle count: %d\n",pcTaskName ,ulIdleCount );
 	      blinkLeds[(count++)%4].toggle ();
 	      // Send count value into trace UEC
 		//vTracePrintF(ue1, "%d", count);
@@ -583,7 +583,7 @@ xLastWakeTime = xTaskGetTickCount();
 
 			xQueueSendToBack( xPrintQueue, &pcStringsToPrint[ 1 ], 0 );
 
-			trace_printf( "%s for 31 iterations and lower its priority\n", pcTaskName );
+			//trace_printf( "%s for 31 iterations and lower its priority\n", pcTaskName );
 			//vTracePrint(ue2, "PD");
 
 			count = 0;
