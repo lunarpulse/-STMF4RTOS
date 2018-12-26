@@ -314,7 +314,7 @@ main(int argc, char* argv[])
 		generator. */
 		//srand( 567 );
 		// Create Tasks
-		xTaskCreate( prvUARTStdioGatekeeperTask, "UARTGatekeeper", 240, NULL, 0, NULL );
+		xTaskCreate( prvUARTStdioGatekeeperTask, "UARTGatekeeper", 240, NULL, 1, NULL );
 
 		xTaskCreate(vTaskEVT, 		"Task_EVT", 		256, NULL, 1, NULL);
 		xTaskCreate(vTaskEV0, 		"vTaskEV0", 		256, NULL, 2, NULL);
@@ -333,7 +333,7 @@ main(int argc, char* argv[])
 		xTaskCreate(vTask4, 		"Task_4", 		240, NULL, 3, NULL);
 
 		xTaskCreate(vTaskREDLEDNotified, 		"tRLNotified", 		360, NULL, 1, &xTaskHandleREDLEDNotified);
-		xTaskCreate(vTaskPushButtonNotify, 		"tPA0Notify", 		360, NULL, 1, &xTaskHandlePushButtonNotify);
+		xTaskCreate(vTaskPushButtonNotify, 		"tPA0Notify", 		360, NULL, 0, &xTaskHandlePushButtonNotify);
 
 		/* Create the gatekeeper task.  This is the only task that is permitted
 		to access standard out. */
@@ -651,22 +651,30 @@ void vTask4 (void *pvParameters)
 
 void vTaskREDLEDNotified( void *pvParameters ){
 	BaseType_t xTaskResult;
+	uint32_t current_notification_value = 0;
+	static char ampa = '&';
+	char *ampaPt = &ampa;
 
 	while(1){
-		xTaskResult = xTaskNotifyWait(0,0,0,portMAX_DELAY);
+		xTaskResult = xTaskNotifyWait(0,0,&current_notification_value,portMAX_DELAY);
 		if(xTaskResult == pdTRUE)
 			blinkLeds[2].turnOn();
+		std::string s = std::to_string(current_notification_value);
+		char const *pchar = s.c_str();
+		SEGGER_SYSVIEW_Print(pchar);
+		xQueueSendToBack( xUARTPrintQueue, ampaPt, 0 );
 	}
 }
 void vTaskPushButtonNotify( void *pvParameters ){
 	TickType_t xLastWakeTime;
 	const TickType_t xFrequency = 50;
 	xLastWakeTime = xTaskGetTickCount();
+
 	while(1){
 		if((GPIOA->IDR & GPIO_PIN_0) != (uint32_t)GPIO_PIN_RESET){//PA0 set
 			//notify
 			vTaskDelayUntil(&xLastWakeTime, xFrequency);
-			xTaskNotify(xTaskHandleREDLEDNotified, 0x00, eNoAction);
+			xTaskNotify(xTaskHandleREDLEDNotified, 0x00, eIncrement);
 		}
 		else
 			blinkLeds[2].turnOff();
