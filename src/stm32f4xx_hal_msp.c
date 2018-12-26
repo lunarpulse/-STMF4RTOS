@@ -91,17 +91,6 @@ void HAL_MspInit(void)
 }
 
 /**
-  * @brief  DeInitializes the Global MSP.
-  * @note   This functiona is called from HAL_DeInit() function to perform system
-  *         level de-initialization (GPIOs, clock, DMA, interrupt).
-  * @retval None
-  */
-void HAL_MspDeInit(void)
-{
-
-}
-
-/**
   * @brief  Initializes the PPP MSP.
   * @note   This functiona is called from HAL_PPP_Init() function to perform 
   *         peripheral(PPP) system level initialization (GPIOs, clock, DMA, interrupt)

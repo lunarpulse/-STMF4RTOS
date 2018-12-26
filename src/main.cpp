@@ -29,6 +29,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <cstring>
 #include "diag/Trace.h"
 
 #include "Timer.h"
@@ -158,7 +159,17 @@ void vTask1( void *pvParameters );
 void vTask2( void *pvParameters );
 void vTaskConsole (void *pvParameters);
 
+static void vTask_Menu_display(void *pvParameters );
+static void vTask_Command_handling(void *pvParameters );
+static void vTask_Command_Processing(void *pvParameters );
+static void prvUARTStdioGatekeeperTask( void *pvParameters );
+
+void BSP_PB_Init();
+extern "C" void EXTI0_IRQHandler(void);
+extern "C" void USART2_IRQHandler(void);
+
 SemaphoreHandle_t xSemaphore = NULL;
+xSemaphoreHandle xSem;
 
 #define TEMP_CODE			0
 #define DISP_CODE			1
@@ -169,6 +180,7 @@ SemaphoreHandle_t xSemaphore = NULL;
 /* vGenSenderHandler is a task function which takes care of putting data in to the queue. vGenReceiverHandler is task function which takes care of getting data from the queue */
 static void vGenSenderHandler( void *pvParameters );
 static void vGenReceiverHandler( void *pvParameters );
+
 
 /* Define the structure type that will be passed on the queue. */
 typedef struct
@@ -189,18 +201,55 @@ static const xData xStructsToSend[ 4 ] =
 #define mainMAX_MSG_LEN	( 80 )
 // Kernel Objects
 xQueueHandle	xConsoleQueue = NULL;
-QueueHandle_t xQueue = NULL;
+xQueueHandle xUARTPrintQueue = NULL;
+xQueueHandle	xCommandQueue = NULL;
 
+TaskHandle_t tDISP_MenuTaskHandle;
+TaskHandle_t tCMD_H_Handle;
+TaskHandle_t tCMD_P_Handle;
+TaskHandle_t tUARTGatekeeperHandle;
+
+QueueHandle_t xQueue = NULL;
 // Define the message_t type as an array of 60 char
 typedef uint8_t message_t[60];
 
 static void MX_USART2_UART_Init(void);
 static void Error_Handler(void);
 void SystemClock_Config(void);
+void os_Delay(uint32_t delay_in_ms);
 
 /* UART handler declaration */
 UART_HandleTypeDef huart2;
+uint8_t usart_temp_buffer;
 
+typedef struct App_CMD{
+	uint8_t CMD_NO;
+	uint8_t CMD_ARGS[10];
+} CMD_t;
+uint8_t command_len = 0;
+uint8_t command_buffer[20]= {0,};
+typedef enum ENUM_CMD{
+	LED_ON,LED_OFF,LED_TOGGLE,LED_TOGGLE_OFF,LED_STATUS,RTC_PRINT_DATETIME,EXIT_APP
+} cmd_e;
+char menu[] = {"\
+		\r\nLED_ON\t\t\t-------->\t1\
+		\r\nLED_OFF\t\t\t-------->\t2\
+		\r\nLED_TOGGLE\t\t-------->\t3\
+		\r\nLED_TOGGLE_OFF\t\t-------->\t4\
+		\r\nLED_STATUS\t\t-------->\t5\
+		\r\nRTC_PRINT_DATETIME\t-------->\t6\
+		\r\nEXIT_APP\t\t-------->\t7\
+		\r\nType your choice: "
+};
+
+uint8_t getCommandCode(uint8_t* buffer);
+void getArguments(uint8_t* arg);
+void led_start_toggle(void);
+void led_stop_toggle(void);
+void read_led_status(char*);
+void read_RTC(char*);
+void Exit_APP(void);
+void print_error_msg(char*);
 int
 main(int argc, char* argv[])
 {
@@ -209,28 +258,27 @@ main(int argc, char* argv[])
 	HAL_Init();
 
 	SystemClock_Config();
+	DWT->CTRL |= (1 << 0); //enebale CYCNT in Data watch point trace register
 
   /* Configure the system clock */
   MX_USART2_UART_Init();
 
+  HAL_UART_Receive_IT(&huart2, (uint8_t *)&usart_temp_buffer, (uint16_t) 1);
   // Send a greeting to the trace device (skipped on Release).
-  trace_puts("Light Up!");
+  //trace_puts("Light Up!");
 
   // At this stage the system clock should have already been configured
   // at high speed.
-  trace_printf("System clock: %u Hz\n", SystemCoreClock);
+  //trace_printf("System clock: %u Hz\n", SystemCoreClock);
 
   Timer timer;
   timer.start ();
-
 
   // Perform all necessary initialisations for the LEDs.
   for (size_t i = 0; i < (sizeof(blinkLeds) / sizeof(blinkLeds[0])); ++i)
     {
       blinkLeds[i].powerUp ();
     }
-
-  uint32_t seconds = 0;
 
   for (size_t i = 0; i < (sizeof(blinkLeds) / sizeof(blinkLeds[0])); ++i)
     {
@@ -247,46 +295,53 @@ main(int argc, char* argv[])
 
   //timer.sleep (BLINK_OFF_TICKS);
 
-  ++seconds;
-  trace_printf ("Second %u\n", seconds);
+  NVIC_SetPriorityGrouping( 0 );
+	//trace_printf("Eclipse-FreeRTOS Project starting \n");
+	SEGGER_SYSVIEW_Conf();
+	SEGGER_SYSVIEW_Start();
 
-
-	trace_printf("Eclipse-FreeRTOS Project starting \n");
-	vTraceEnable(TRC_START);
-
+	xSem = xSemaphoreCreateBinary();
 	vSemaphoreCreateBinary( xSemaphore );
-	vTraceSetSemaphoreName(xSemaphore, "xBSEM");
+
     /* The queue is created to hold a maximum of 3 structures of type xData. */
     xQueue = xQueueCreate( MAX_QUEUE, sizeof( xData ) );
-    vTraceSetQueueName(xQueue, "DataQueue");
+
 
     // Create Queue to hold console messages
-	xConsoleQueue = xQueueCreate(10, sizeof(message_t *));
-
+	//xConsoleQueue = xQueueCreate(10, sizeof(message_t *));
 	// Give a nice name to the Queue in the trace recorder
-	vTraceSetQueueName(xConsoleQueue, "Console Queue");
 
-	if( xQueue != NULL && xConsoleQueue!= NULL )
+	xCommandQueue = xQueueCreate(10, sizeof (CMD_t *));
+	xUARTPrintQueue = xQueueCreate( 10, sizeof( char * ) );
+
+	if( xCommandQueue != NULL && xUARTPrintQueue!= NULL )
 	{
 		/* Create 3 instances of the task that will write to the queue.  The
 		parameter is used to pass the structure that the task should write to the
 		queue, all 3 sender tasks are created at priority 2 which is above the priority of the receiver. */
-		xTaskCreate( vGenSenderHandler, "Temp-task", 240, ( void * ) &( xStructsToSend[ 0 ] ), 2, NULL );
 
-		xTaskCreate( vGenSenderHandler, "Disp-task", 240, ( void * ) &( xStructsToSend[ 1 ] ), 2, NULL );
+		//xTaskCreate( vGenSenderHandler, "Temp-task", 240, ( void * ) &( xStructsToSend[ 0 ] ), 2, NULL );
 
-		xTaskCreate( vGenSenderHandler, "IMU-task", 240, ( void * ) &( xStructsToSend[ 2 ] ), 2, NULL );
+		//xTaskCreate( vGenSenderHandler, "Disp-task", 240, ( void * ) &( xStructsToSend[ 1 ] ), 2, NULL );
 
-		xTaskCreate( vGenSenderHandler, "Other-task", 240, ( void * ) &( xStructsToSend[ 3 ] ), 2, NULL );
+		//xTaskCreate( vGenSenderHandler, "IMU-task", 240, ( void * ) &( xStructsToSend[ 2 ] ), 2, NULL );
+
+		//xTaskCreate( vGenSenderHandler, "Other-task", 240, ( void * ) &( xStructsToSend[ 3 ] ), 2, NULL );
 
 		/* Create the task that will read from the queue.  The task is created with
 		priority 1, so below the priority of the sender tasks. */
-		xTaskCreate( vGenReceiverHandler, "Receive-task", 240, NULL, 1, NULL );
+		//xTaskCreate( vGenReceiverHandler, "Receive-task", 240, NULL, 1, NULL );
 
 		// Create Tasks
-		xTaskCreate(vTask1, 		"Task_1", 	256, NULL, 2, NULL);
-		xTaskCreate(vTask2, 		"Task_2", 	256, NULL, 3, NULL);
-		xTaskCreate(vTaskConsole, 	"Task_Console", 256, NULL, 1, NULL);
+		xTaskCreate( prvUARTStdioGatekeeperTask, "UARTGatekeeper", 512, NULL, 0, &tUARTGatekeeperHandle );
+
+		xTaskCreate( vTask_Menu_display, "tDISP_Menu", 512, NULL, 1, &tDISP_MenuTaskHandle );
+		xTaskCreate( vTask_Command_handling, "tCMD_H", 512, NULL, 1, &tCMD_H_Handle );
+		xTaskCreate( vTask_Command_Processing, "tCMD_P", 512, NULL, 1, &tCMD_P_Handle );
+
+		//xTaskCreate(vTask1, 		"Task_1", 	5, NULL, 2, NULL);
+		//xTaskCreate(vTask2, 		"Task_2", 	256, NULL, 3, NULL);
+		//xTaskCreate(vTaskConsole, 	"Task_Console", 256, NULL, 1, NULL);
 
 		/* Start the scheduler so the created tasks start executing. */
 		vTaskStartScheduler();
@@ -300,7 +355,7 @@ main(int argc, char* argv[])
 static void vGenSenderHandler( void *pvParameters )
 {
 portBASE_TYPE xStatus;
-const portTickType xTicksToWait = 1000 / portTICK_RATE_MS;
+const portTickType xTicksToWait = pdMS_TO_TICKS(1000);
 
 	/* As per most tasks, this task is implemented within an infinite loop. */
 	for( ;; )
@@ -326,10 +381,10 @@ const portTickType xTicksToWait = 1000 / portTICK_RATE_MS;
 			/* We could not write to the queue because it was full - this must
 			be an error as the receiving task should make space in the queue
 			as soon as both sending tasks are in the Blocked state. */
-			trace_printf( "Could not send to the queue.\n" );
+			//trace_printf( "Could not send to the queue.\n" );
 		}else
 		{
-			trace_printf("Sender: data sent \n");
+			//trace_printf("Sender: data sent \n");
 		}
 
 		/* Allow the other sender task to execute. */
@@ -343,7 +398,7 @@ static void vGenReceiverHandler( void *pvParameters )
 /* Declare the structure that will hold the values received from the queue. */
 xData xReceivedStructure;
 portBASE_TYPE xStatus;
-const portTickType xTicksToWait = 250 / portTICK_RATE_MS;
+const portTickType xTicksToWait = pdMS_TO_TICKS(500);
 
 	/* This task is also defined within an infinite loop. */
 	for( ;; )
@@ -353,7 +408,7 @@ const portTickType xTicksToWait = 250 / portTICK_RATE_MS;
 		always find the queue to be full.  3 is the queue length. */
 		if( uxQueueMessagesWaiting( xQueue ) == MAX_QUEUE )
 		{
-			trace_printf( "Queue should have been full!\n" );
+			//trace_printf( "Queue should have been full!\n" );
 		}
 
 		/* The first parameter is the queue from which data is to be received.  The
@@ -378,22 +433,22 @@ const portTickType xTicksToWait = 250 / portTICK_RATE_MS;
 			value and the source of the value. */
 			if( xReceivedStructure.code == TEMP_CODE )
 			{
-				trace_printf( "Data From Temp-task = %d,%d \n", xReceivedStructure.data[0],xReceivedStructure.data[1] );
+				//trace_printf( "Data From Temp-task = %d,%d \n", xReceivedStructure.data[0],xReceivedStructure.data[1] );
 			}
 			else if (xReceivedStructure.code == DISP_CODE)
 			{
-				trace_printf( "Data From disp-task = %d,%d,%d \n", xReceivedStructure.data[0],xReceivedStructure.data[1], xReceivedStructure.data[2]);
+				//trace_printf( "Data From disp-task = %d,%d,%d \n", xReceivedStructure.data[0],xReceivedStructure.data[1], xReceivedStructure.data[2]);
 			}
 			else if (xReceivedStructure.code == IMU_CODE)
 			{
-				trace_printf( "Data From IMU-task = %d,%d,%d\n", xReceivedStructure.data[0],xReceivedStructure.data[1], xReceivedStructure.data[2]);
+				//trace_printf( "Data From IMU-task = %d,%d,%d\n", xReceivedStructure.data[0],xReceivedStructure.data[1], xReceivedStructure.data[2]);
 			}
 			else if (xReceivedStructure.code == OTHER_CODE)
 			{
-				trace_printf( "Data From other-task = %d,%d \n", xReceivedStructure.data[0],xReceivedStructure.data[1] );
+				//trace_printf( "Data From other-task = %d,%d \n", xReceivedStructure.data[0],xReceivedStructure.data[1] );
 			}else
 			{
-				trace_printf( "in-valid code \n");
+				//trace_printf( "in-valid code \n");
 			}
 
 			vTaskDelay(xTicksToWait);
@@ -402,14 +457,14 @@ const portTickType xTicksToWait = 250 / portTICK_RATE_MS;
 		{
 			/* We did not receive anything from the queue.  This must be an error
 			as this task should only run when the queue is full. */
-			trace_printf( "Could not receive from the queue.\n" );
+			//trace_printf( "Could not receive from the queue.\n" );
 		}
 	}
 }
 
 void vTask1( void *pvParameters )
 {
-	const char *pcTaskName = "Task 1 is running\n";
+	//const char *pcTaskName = "Task 1 is running\n";
 	static unsigned int val;
 	message_t 	message;
 	message_t	*pm;
@@ -423,7 +478,7 @@ void vTask1( void *pvParameters )
 		/* lets make the sema un-available */
 
 		 xSemaphoreTake( xSemaphore, ( TickType_t ) portMAX_DELAY );
-		 trace_printf( "%s\n",pcTaskName );
+		 //trace_printf( "%s\n",pcTaskName );
 	      blinkLeds[(++val)%4].toggle ();
 		/* lets make the sema available */
 		 xSemaphoreGive( xSemaphore);
@@ -436,7 +491,7 @@ void vTask1( void *pvParameters )
 		xQueueSendToBack(xConsoleQueue, &pm, 0);
 
 		// Wait here for 20ms since last wakeup
-		vTaskDelayUntil (&xLastWakeTime, (20/portTICK_RATE_MS));
+		vTaskDelayUntil (&xLastWakeTime, pdMS_TO_TICKS(125));
 
 	}
 }
@@ -444,7 +499,7 @@ void vTask1( void *pvParameters )
 
 void vTask2( void *pvParameters )
 {
-	const char *pcTaskName = "Task 2 is running\n";
+	//const char *pcTaskName = "Task 2 is running\n";
 	static unsigned int val;
 	message_t 	message;
 	message_t	*pm;
@@ -457,7 +512,7 @@ void vTask2( void *pvParameters )
 		/* Print out the name of this task. */
 		/* lets make the sema un-available */
 		 xSemaphoreTake( xSemaphore, ( TickType_t ) portMAX_DELAY );
-	  	 trace_printf( "%s\n",pcTaskName );
+	  	 //trace_printf( "%s\n",pcTaskName );
 	      blinkLeds[(++val)%4].toggle ();
 		/* lets make the sema available */
 		 xSemaphoreGive( xSemaphore);
@@ -470,7 +525,7 @@ void vTask2( void *pvParameters )
 		xQueueSendToBack(xConsoleQueue, &pm, 0);
 
 		// Wait here for 2ms since last wakeup
-		vTaskDelayUntil (&xLastWakeTime, (2/portTICK_RATE_MS));
+		vTaskDelayUntil (&xLastWakeTime, pdMS_TO_TICKS(375));
 
 	}
 }
@@ -499,6 +554,180 @@ void vTaskConsole (void *pvParameters)
 	}
 
 }
+
+static void vTask_Menu_display(void *pvParameters ){
+
+	char * pData = &menu[0];
+	 uint32_t *pulNotificationValue  = NULL;
+	 uint32_t ulBitsToClearOnExit = 0, ulBitsToClearOnEntry = 0;
+	while(1){
+		//send data to print manager and if it is full wait indefinitely
+		xQueueSend(xUARTPrintQueue, &pData, portMAX_DELAY);
+//		SET_BIT(huart2.Instance->CR1, USART_CR1_RXNEIE);
+
+		//wait until display manager wakes up this task and send data again( one line above ).
+		xTaskNotifyWait( ulBitsToClearOnEntry,  ulBitsToClearOnExit, pulNotificationValue, portMAX_DELAY);
+	}
+}
+
+static void prvUARTStdioGatekeeperTask( void *pvParameters )
+{
+
+	char * pcUARTMessageToPrint = NULL;
+
+	/* This is the only task that is allowed to write to the terminal output.
+	Any other task wanting to write to the output does not access the terminal
+	directly, but instead sends the output to this task.  As only one task
+	writes to standard out there are no mutual exclusion or serialization issues
+	to consider within this task itself. */
+	for( ;; )
+	{
+		/* Wait for a message to arrive. */
+		xQueueReceive( xUARTPrintQueue, &pcUARTMessageToPrint, portMAX_DELAY );
+
+		/* There is no need to check the return	value as the task will block
+		indefinitely and only run again when a message has arrived.  When the
+		next line is executed there will be a message to be output. */
+		//trace_printf( "%s\n",*pcUARTMessageToPrint );
+		//	vTracePrint(ue3, "UART");
+		for(uint32_t i = 0; i < strlen(pcUARTMessageToPrint); i++){
+			while ( __HAL_UART_GET_FLAG (&huart2 , UART_FLAG_TXE ) == RESET);
+			USART2 ->DR = pcUARTMessageToPrint[i] & 0xFF;
+		}
+
+		while ( __HAL_UART_GET_FLAG (&huart2 , UART_FLAG_TC ) == RESET);
+		/* Now simply go back to wait for the next message. */
+		//CLEAR_BIT(huart2.Instance->CR1, USART_CR1_RXNEIE);
+
+	}
+}
+static void vTask_Command_handling(void *pvParameters ){
+    uint8_t cmd_code = 0;
+    CMD_t * new_cmd;
+	 uint32_t ulBitsToClearOnExit = 0, ulBitsToClearOnEntry = 0;
+	 uint32_t *pulNotificationValue  = NULL;
+
+	while(1){
+		xTaskNotifyWait(ulBitsToClearOnEntry,ulBitsToClearOnExit,pulNotificationValue, portMAX_DELAY);
+		cmd_code = getCommandCode(command_buffer);
+		new_cmd = (CMD_t*)pvPortMalloc(sizeof(CMD_t));
+		new_cmd->CMD_NO = cmd_code;
+		getArguments(new_cmd->CMD_ARGS);
+
+		xQueueSend(xCommandQueue, &new_cmd, portMAX_DELAY);
+
+
+
+	}
+}
+
+uint8_t getCommandCode(uint8_t* buffer){
+	return buffer[0] - 48;
+}
+
+void getArguments(uint8_t* arg){
+
+}
+
+static void vTask_Command_Processing(void *pvParameters ){
+	CMD_t * new_cmd  = NULL;
+	char task_msg[50];
+
+	while(1){
+		xQueueReceive( xCommandQueue, &new_cmd, portMAX_DELAY );
+		switch(new_cmd->CMD_NO){
+		case LED_ON:
+			blinkLeds[0].turnOn ();
+			break;
+		case LED_OFF:
+			blinkLeds[0].turnOff();
+			break;
+		case LED_TOGGLE:
+			led_start_toggle();
+			break;
+		case LED_TOGGLE_OFF:
+			led_stop_toggle();
+			break;
+		case LED_STATUS:
+			read_led_status(task_msg);
+			break;
+		case RTC_PRINT_DATETIME:
+			read_RTC(task_msg);
+			break;
+		case EXIT_APP:
+			Exit_APP();
+			break;
+		default:
+			print_error_msg(task_msg);
+			break;
+		}
+	}
+}
+
+void led_start_toggle(void){
+
+}
+void led_stop_toggle(void){
+
+}
+void read_led_status(char* task_msg){
+	sprintf(task_msg, "\r\nLED Status: %d\r\n", (int)(GPIOD->IDR & GPIO_PIN_12));
+	xQueueSend(xUARTPrintQueue, &task_msg, portMAX_DELAY );
+}
+void read_RTC(char* task_msg){
+
+}
+void Exit_APP(void){
+
+}
+void print_error_msg(char* task_msg){
+	sprintf(task_msg, "\r\nError: Invalid Command Received\r\n");
+	xQueueSend(xUARTPrintQueue, &task_msg, portMAX_DELAY );
+}
+
+void os_Delay(uint32_t delay_in_ms){
+	uint32_t current_tick_count = xTaskGetTickCount();
+	uint32_t delay_tick = delay_in_ms * configTICK_RATE_HZ / 1000;// 1000 ms
+	uint32_t wait_until = delay_tick+ current_tick_count;
+	while(wait_until > xTaskGetTickCount());
+}
+void BSP_PB_Init(){
+	GPIO_InitTypeDef   GPIO_InitStructure;
+
+	/* Enable GPIOA clock */
+	__HAL_RCC_GPIOA_CLK_ENABLE();
+
+	/* Configure PA0 pin as input floating */
+	GPIO_InitStructure.Mode = GPIO_MODE_IT_FALLING;
+	GPIO_InitStructure.Pull = GPIO_NOPULL;
+	GPIO_InitStructure.Pin = GPIO_PIN_0;
+	HAL_GPIO_Init(GPIOA, &GPIO_InitStructure);
+
+	/* Enable and set EXTI Line0 Interrupt to the lowest priority */
+	NVIC_SetPriority(EXTI0_IRQn, configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY );
+	/* Enable the interrupt. */
+	NVIC_EnableIRQ( EXTI0_IRQn );
+
+}
+
+void EXTI0_IRQHandler(void)
+{
+	portBASE_TYPE xHigherPriorityTaskWoken = pdFALSE;
+	// Test for line 13 pending interrupt
+	if ((EXTI->PR & EXTI_PR_PR0_Msk) != 0)
+	{
+
+		// Clear pending bit 13 by writing a '1'
+		EXTI->PR |= EXTI_PR_PR0;
+
+		// Release the semaphore
+		xSemaphoreGiveFromISR(xSem, &xHigherPriorityTaskWoken);
+
+		// Perform a context switch to the waiting task
+		portEND_SWITCHING_ISR( xHigherPriorityTaskWoken );
+	}
+}
+
 /**
   * @brief System Clock Configuration
   * @retval None
@@ -567,7 +796,7 @@ static void MX_USART2_UART_Init(void)
 
   /* USER CODE END USART2_Init 1 */
   huart2.Instance = USART2;
-  huart2.Init.BaudRate = 9600;
+  huart2.Init.BaudRate = 115200;
   huart2.Init.WordLength = UART_WORDLENGTH_8B;
   huart2.Init.StopBits = UART_STOPBITS_1;
   huart2.Init.Parity = UART_PARITY_NONE;
@@ -583,73 +812,54 @@ static void MX_USART2_UART_Init(void)
   /* USER CODE END USART2_Init 2 */
 
 }
-void HAL_UART_MspInit(UART_HandleTypeDef* huart)
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
 
-  GPIO_InitTypeDef GPIO_InitStruct = {0,0,0,0,0};
-  if(huart->Instance==USART2)
-  {
-  /* USER CODE BEGIN USART2_MspInit 0 */
+	BaseType_t pxHigherPriorityTaskWoken = pdFALSE;
+	if(huart->Instance == USART2){
 
-  /* USER CODE END USART2_MspInit 0 */
-    /* Peripheral clock enable */
-    __HAL_RCC_USART2_CLK_ENABLE();
+		command_buffer[command_len++] = usart_temp_buffer;
 
-    __HAL_RCC_GPIOA_CLK_ENABLE();
-    /**USART2 GPIO Configuration
-    PA2     ------> USART2_TX
-    PA3     ------> USART2_RX
-    */
-    GPIO_InitStruct.Pin = GPIO_PIN_2|GPIO_PIN_3;
-    GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-    GPIO_InitStruct.Pull = GPIO_PULLUP;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
-    GPIO_InitStruct.Alternate = GPIO_AF7_USART2;
-    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+		if(usart_temp_buffer == '\r') //user finished entering data
+		{
+			command_len = 0;
 
-    /* USART2 interrupt Init */
-    HAL_NVIC_SetPriority(USART2_IRQn, 5, 0);
-    HAL_NVIC_EnableIRQ(USART2_IRQn);
-  /* USER CODE BEGIN USART2_MspInit 1 */
+			xTaskNotifyFromISR(tCMD_H_Handle,0x00,eNoAction, &pxHigherPriorityTaskWoken);
 
-  /* USER CODE END USART2_MspInit 1 */
-  }
+			xTaskNotifyFromISR(tDISP_MenuTaskHandle,0x00,eNoAction, &pxHigherPriorityTaskWoken);
+		}
+
+				//if higher priority task woke up after interrupt handler executed, yield to the higher pririty task
+	}
+	HAL_UART_Receive_IT(&huart2, (uint8_t *)&usart_temp_buffer, (uint16_t) 1);
+	if(pxHigherPriorityTaskWoken == pdTRUE) taskYIELD();
 
 }
+/*
+void USART2_IRQHandler(void){
 
-/**
-* @brief UART MSP De-Initialization
-* This function freeze the hardware resources used in this example
-* @param huart: UART handle pointer
-* @retval None
+	BaseType_t pxHigherPriorityTaskWoken = pdFALSE;
+
+	if(__HAL_UART_GET_FLAG(&huart2, UART_FLAG_RXNE)){
+
+		uint16_t data_byte=(uint16_t)(huart2.Instance->DR & (uint16_t)0x01FFU);
+
+		command_buffer[command_len++] = data_byte & 0xFF;
+
+		if(data_byte == '\r') //user finished entering data
+		{
+			command_len = 0;
+
+			xTaskNotifyFromISR(tCMD_H_Handle,0x00,eNoAction, &pxHigherPriorityTaskWoken);
+
+			xTaskNotifyFromISR(tDISP_MenuTaskHandle,0x00,eNoAction, &pxHigherPriorityTaskWoken);
+		}
+	}
+	//if higher priority task woke up after interrupt handler executed, yield to the higher pririty task
+	if(pxHigherPriorityTaskWoken == pdTRUE) taskYIELD();
+}
 */
-
-void HAL_UART_MspDeInit(UART_HandleTypeDef* huart)
-{
-
-  if(huart->Instance==USART2)
-  {
-  /* USER CODE BEGIN USART2_MspDeInit 0 */
-
-  /* USER CODE END USART2_MspDeInit 0 */
-    /* Peripheral clock disable */
-    __HAL_RCC_USART2_CLK_DISABLE();
-
-    /**USART2 GPIO Configuration
-    PA2     ------> USART2_TX
-    PA3     ------> USART2_RX
-    */
-    HAL_GPIO_DeInit(GPIOA, GPIO_PIN_2|GPIO_PIN_3);
-
-    /* USART2 interrupt DeInit */
-    HAL_NVIC_DisableIRQ(USART2_IRQn);
-  /* USER CODE BEGIN USART2_MspDeInit 1 */
-
-  /* USER CODE END USART2_MspDeInit 1 */
-  }
-
-}
-
 static void Error_Handler(void)
 {
   /* Turn LED5 on */
