@@ -164,6 +164,9 @@ std::string pcStringsToPrint [3] = {"Task 1 ************************************
 
 /*-----------------------------------------------------------*/
 
+TaskHandle_t xTaskHandleREDLEDNotified = NULL;
+TaskHandle_t xTaskHandlePushButtonNotify = NULL;
+
 /* Declare a variable of type xQueueHandle.  This is used to send messages from
 the print tasks to the gatekeeper task. */
 xQueueHandle xPrintQueue;
@@ -184,6 +187,9 @@ void vTask3( void *pvParameters );
 void vTask4( void *pvParameters );
 void vTaskEV0 (void *pvParameters);
 void vTaskEV1 (void *pvParameters);
+void vTaskREDLEDNotified( void *pvParameters );
+void vTaskPushButtonNotify( void *pvParameters );
+void os_Delay(uint32_t delay_in_ms);
 
 /* The gatekeeper task itself. */
 static void prvStdioGatekeeperTask( void *pvParameters );
@@ -326,6 +332,9 @@ main(int argc, char* argv[])
 		xTaskCreate(vTask3, 		"Task_3", 		240, NULL, 1, NULL);
 		xTaskCreate(vTask4, 		"Task_4", 		240, NULL, 3, NULL);
 
+		xTaskCreate(vTaskREDLEDNotified, 		"tRLNotified", 		360, NULL, 1, &xTaskHandleREDLEDNotified);
+		xTaskCreate(vTaskPushButtonNotify, 		"tPA0Notify", 		360, NULL, 1, &xTaskHandlePushButtonNotify);
+
 		/* Create the gatekeeper task.  This is the only task that is permitted
 		to access standard out. */
 		xTaskCreate( prvStdioGatekeeperTask, "Gatekeeper", 240, NULL, 0, NULL );
@@ -350,7 +359,7 @@ void vTaskEVT (void *pvParameters)
 	while(1)
 	{
 		// LED toggle
-		blinkLeds[2].toggle ();
+		//blinkLeds[2].toggle ();
 
 		switch(state)
 		{
@@ -638,6 +647,37 @@ void vTask4 (void *pvParameters)
 			xQueueSendToBack( xUARTPrintQueue, dotPt, 0 );
 		}
 	}
+}
+
+void vTaskREDLEDNotified( void *pvParameters ){
+	BaseType_t xTaskResult;
+
+	while(1){
+		xTaskResult = xTaskNotifyWait(0,0,0,portMAX_DELAY);
+		if(xTaskResult == pdTRUE)
+			blinkLeds[2].turnOn();
+	}
+}
+void vTaskPushButtonNotify( void *pvParameters ){
+	TickType_t xLastWakeTime;
+	const TickType_t xFrequency = 50;
+	xLastWakeTime = xTaskGetTickCount();
+	while(1){
+		if((GPIOA->IDR & GPIO_PIN_0) != (uint32_t)GPIO_PIN_RESET){//PA0 set
+			//notify
+			vTaskDelayUntil(&xLastWakeTime, xFrequency);
+			xTaskNotify(xTaskHandleREDLEDNotified, 0x00, eNoAction);
+		}
+		else
+			blinkLeds[2].turnOff();
+	}
+}
+
+void os_Delay(uint32_t delay_in_ms){
+	uint32_t current_tick_count = xTaskGetTickCount();
+	uint32_t delay_tick = delay_in_ms * configTICK_RATE_HZ / 1000;// 1000 ms
+	uint32_t wait_until = delay_tick+ current_tick_count;
+	while(wait_until > xTaskGetTickCount());
 }
 /*-----------------------------------------------------------*/
 void SystemClock_Config(void)
