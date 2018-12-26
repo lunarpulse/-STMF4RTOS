@@ -229,7 +229,7 @@ typedef struct App_CMD{
 uint8_t command_len = 0;
 uint8_t command_buffer[20]= {0,};
 typedef enum ENUM_CMD{
-	LED_ON,LED_OFF,LED_TOGGLE,LED_TOGGLE_OFF,LED_STATUS,RTC_PRINT_DATETIME,EXIT_APP
+	NO_ACTION,LED_ON,LED_OFF,LED_TOGGLE,LED_TOGGLE_OFF,LED_STATUS,RTC_PRINT_DATETIME,EXIT_APP
 } cmd_e;
 char menu[] = {"\
 		\r\nLED_ON\t\t\t-------->\t1\
@@ -263,14 +263,6 @@ main(int argc, char* argv[])
   /* Configure the system clock */
   MX_USART2_UART_Init();
 
-  HAL_UART_Receive_IT(&huart2, (uint8_t *)&usart_temp_buffer, (uint16_t) 1);
-  // Send a greeting to the trace device (skipped on Release).
-  //trace_puts("Light Up!");
-
-  // At this stage the system clock should have already been configured
-  // at high speed.
-  //trace_printf("System clock: %u Hz\n", SystemCoreClock);
-
   Timer timer;
   timer.start ();
 
@@ -296,7 +288,6 @@ main(int argc, char* argv[])
   //timer.sleep (BLINK_OFF_TICKS);
 
   NVIC_SetPriorityGrouping( 0 );
-	//trace_printf("Eclipse-FreeRTOS Project starting \n");
 	SEGGER_SYSVIEW_Conf();
 	SEGGER_SYSVIEW_Start();
 
@@ -305,11 +296,6 @@ main(int argc, char* argv[])
 
     /* The queue is created to hold a maximum of 3 structures of type xData. */
     xQueue = xQueueCreate( MAX_QUEUE, sizeof( xData ) );
-
-
-    // Create Queue to hold console messages
-	//xConsoleQueue = xQueueCreate(10, sizeof(message_t *));
-	// Give a nice name to the Queue in the trace recorder
 
 	xCommandQueue = xQueueCreate(10, sizeof (CMD_t *));
 	xUARTPrintQueue = xQueueCreate( 10, sizeof( char * ) );
@@ -320,28 +306,12 @@ main(int argc, char* argv[])
 		parameter is used to pass the structure that the task should write to the
 		queue, all 3 sender tasks are created at priority 2 which is above the priority of the receiver. */
 
-		//xTaskCreate( vGenSenderHandler, "Temp-task", 240, ( void * ) &( xStructsToSend[ 0 ] ), 2, NULL );
-
-		//xTaskCreate( vGenSenderHandler, "Disp-task", 240, ( void * ) &( xStructsToSend[ 1 ] ), 2, NULL );
-
-		//xTaskCreate( vGenSenderHandler, "IMU-task", 240, ( void * ) &( xStructsToSend[ 2 ] ), 2, NULL );
-
-		//xTaskCreate( vGenSenderHandler, "Other-task", 240, ( void * ) &( xStructsToSend[ 3 ] ), 2, NULL );
-
-		/* Create the task that will read from the queue.  The task is created with
-		priority 1, so below the priority of the sender tasks. */
-		//xTaskCreate( vGenReceiverHandler, "Receive-task", 240, NULL, 1, NULL );
-
 		// Create Tasks
-		xTaskCreate( prvUARTStdioGatekeeperTask, "UARTGatekeeper", 512, NULL, 0, &tUARTGatekeeperHandle );
+		xTaskCreate( prvUARTStdioGatekeeperTask, "UARTGatekeeper", 512, NULL, 1, &tUARTGatekeeperHandle );
 
-		xTaskCreate( vTask_Menu_display, "tDISP_Menu", 512, NULL, 1, &tDISP_MenuTaskHandle );
-		xTaskCreate( vTask_Command_handling, "tCMD_H", 512, NULL, 1, &tCMD_H_Handle );
-		xTaskCreate( vTask_Command_Processing, "tCMD_P", 512, NULL, 1, &tCMD_P_Handle );
-
-		//xTaskCreate(vTask1, 		"Task_1", 	5, NULL, 2, NULL);
-		//xTaskCreate(vTask2, 		"Task_2", 	256, NULL, 3, NULL);
-		//xTaskCreate(vTaskConsole, 	"Task_Console", 256, NULL, 1, NULL);
+		xTaskCreate( vTask_Menu_display, "tDISP_Menu", 512, NULL, 2, &tDISP_MenuTaskHandle );
+		xTaskCreate( vTask_Command_handling, "tCMD_H", 512, NULL, 3, &tCMD_H_Handle );
+		xTaskCreate( vTask_Command_Processing, "tCMD_P", 512, NULL, 3, &tCMD_P_Handle );
 
 		/* Start the scheduler so the created tasks start executing. */
 		vTaskStartScheduler();
@@ -598,7 +568,7 @@ static void prvUARTStdioGatekeeperTask( void *pvParameters )
 		while ( __HAL_UART_GET_FLAG (&huart2 , UART_FLAG_TC ) == RESET);
 		/* Now simply go back to wait for the next message. */
 		//CLEAR_BIT(huart2.Instance->CR1, USART_CR1_RXNEIE);
-
+		HAL_UART_Receive_IT(&huart2, (uint8_t *)&usart_temp_buffer, (uint16_t) 1);
 	}
 }
 static void vTask_Command_handling(void *pvParameters ){
@@ -615,8 +585,6 @@ static void vTask_Command_handling(void *pvParameters ){
 		getArguments(new_cmd->CMD_ARGS);
 
 		xQueueSend(xCommandQueue, &new_cmd, portMAX_DELAY);
-
-
 
 	}
 }
@@ -636,6 +604,8 @@ static void vTask_Command_Processing(void *pvParameters ){
 	while(1){
 		xQueueReceive( xCommandQueue, &new_cmd, portMAX_DELAY );
 		switch(new_cmd->CMD_NO){
+		case NO_ACTION:
+			break;
 		case LED_ON:
 			blinkLeds[0].turnOn ();
 			break;
@@ -813,30 +783,6 @@ static void MX_USART2_UART_Init(void)
 
 }
 
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
-{
-
-	BaseType_t pxHigherPriorityTaskWoken = pdFALSE;
-	if(huart->Instance == USART2){
-
-		command_buffer[command_len++] = usart_temp_buffer;
-
-		if(usart_temp_buffer == '\r') //user finished entering data
-		{
-			command_len = 0;
-
-			xTaskNotifyFromISR(tCMD_H_Handle,0x00,eNoAction, &pxHigherPriorityTaskWoken);
-
-			xTaskNotifyFromISR(tDISP_MenuTaskHandle,0x00,eNoAction, &pxHigherPriorityTaskWoken);
-		}
-
-				//if higher priority task woke up after interrupt handler executed, yield to the higher pririty task
-	}
-	HAL_UART_Receive_IT(&huart2, (uint8_t *)&usart_temp_buffer, (uint16_t) 1);
-	if(pxHigherPriorityTaskWoken == pdTRUE) taskYIELD();
-
-}
-/*
 void USART2_IRQHandler(void){
 
 	BaseType_t pxHigherPriorityTaskWoken = pdFALSE;
@@ -855,11 +801,12 @@ void USART2_IRQHandler(void){
 
 			xTaskNotifyFromISR(tDISP_MenuTaskHandle,0x00,eNoAction, &pxHigherPriorityTaskWoken);
 		}
+
 	}
 	//if higher priority task woke up after interrupt handler executed, yield to the higher pririty task
 	if(pxHigherPriorityTaskWoken == pdTRUE) taskYIELD();
 }
-*/
+
 static void Error_Handler(void)
 {
   /* Turn LED5 on */
