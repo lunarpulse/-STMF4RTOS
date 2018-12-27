@@ -204,7 +204,11 @@ static const xData xStructsToSend[ 4 ] =
 xQueueHandle	xConsoleQueue = NULL;
 xQueueHandle xUARTPrintQueue = NULL;
 xQueueHandle	xCommandQueue = NULL;
-TimerHandle_t ledTimerHandle = NULL;
+
+TimerHandle_t GreenledTimerHandle = NULL;
+TimerHandle_t OrangeledTimerHandle = NULL;
+static volatile uint8_t IsOrangeTimerActive = 0;
+
 TaskHandle_t tDISP_MenuTaskHandle;
 TaskHandle_t tCMD_H_Handle;
 TaskHandle_t tCMD_P_Handle;
@@ -222,6 +226,7 @@ void os_Delay(uint32_t delay_in_ms);
 /* UART handler declaration */
 UART_HandleTypeDef huart2;
 uint8_t usart_temp_buffer;
+static uint8_t pb_toggle_count = 0;
 
 typedef struct App_CMD{
 	uint8_t CMD_NO;
@@ -240,12 +245,16 @@ char menu[] = {"\
 		\r\nLED_STATUS\t\t-------->\t5\
 		\r\nRTC_PRINT_DATETIME\t-------->\t6\
 		\r\nEXIT_APP\t\t-------->\t7\
-		\r\nType your choice: "
+		\r\nType your choice:\t\t"
 };
 
 uint8_t getCommandCode(uint8_t* buffer);
 void getArguments(uint8_t* arg);
-void led_toggle(TimerHandle_t xTimer);
+void blue_led_toggle(TimerHandle_t xTimer);
+void red_led_toggle(TimerHandle_t xTimer);
+void orange_led_toggle(TimerHandle_t xTimer);
+void green_led_toggle(TimerHandle_t xTimer);
+
 void led_start_toggle(void);
 void led_stop_toggle(void);
 void read_led_status(char*);
@@ -292,6 +301,10 @@ main(int argc, char* argv[])
   NVIC_SetPriorityGrouping( 0 );
 	SEGGER_SYSVIEW_Conf();
 	SEGGER_SYSVIEW_Start();
+
+	GreenledTimerHandle = xTimerCreate( "GLEDTGTimer", pdMS_TO_TICKS(250),pdTRUE,NULL,green_led_toggle);
+	OrangeledTimerHandle = xTimerCreate( "OLEDTGTimer", pdMS_TO_TICKS(250),pdTRUE,NULL,orange_led_toggle);
+	IsOrangeTimerActive = 1;
 
 	xSem = xSemaphoreCreateBinary();
 	vSemaphoreCreateBinary( xSemaphore );
@@ -548,6 +561,7 @@ static void vTask_Menu_display(void *pvParameters ){
 		if( ( pulNotificationValue & ulBitsToClearOnExitPrintMenu ) != 0 )
 		{
 			/* Bit 0 was set - process whichever event is represented by bit 0. */
+			pb_toggle_count = 0; //from EXTI0 toogle
 			xQueueSend(xUARTPrintQueue, &pData, portMAX_DELAY);
 			//wait until display manager wakes up this task and send data again( one line above ).
 			xTaskNotifyWait( ulBitsToClearOnEntry,  ulBitsToClearOnExitPrintMenu, &pulNotificationValue, portMAX_DELAY);
@@ -616,6 +630,7 @@ void getArguments(uint8_t* arg){
 static void vTask_Command_Processing(void *pvParameters ){
 	CMD_t * new_cmd  = NULL;
 	char task_msg[50];
+	BSP_PB_Init();
 
 	while(1){
 		xQueueReceive( xCommandQueue, &new_cmd, portMAX_DELAY );
@@ -650,19 +665,30 @@ static void vTask_Command_Processing(void *pvParameters ){
 	}
 }
 
-void led_toggle(TimerHandle_t xTimer){
+void blue_led_toggle(TimerHandle_t xTimer){
+	blinkLeds[3].toggle();
+}
+void red_led_toggle(TimerHandle_t xTimer){
+	blinkLeds[2].toggle();
+}
+void orange_led_toggle(TimerHandle_t xTimer){
+	blinkLeds[1].toggle();
+}
+void green_led_toggle(TimerHandle_t xTimer){
 	blinkLeds[0].toggle();
 }
 void led_start_toggle(void){
-
-	ledTimerHandle = xTimerCreate( "LEDTGTimer", pdMS_TO_TICKS(250),pdTRUE,NULL,led_toggle);
-	xTimerStart(ledTimerHandle, portMAX_DELAY); // waiting for timer queue available for portMAX_DELAY
+	xTimerStart(GreenledTimerHandle, portMAX_DELAY); // waiting for timer queue available for portMAX_DELAY
 }
 void led_stop_toggle(void){
-	xTimerStop(ledTimerHandle, portMAX_DELAY);
+	xTimerStop(GreenledTimerHandle, portMAX_DELAY);
 }
 void read_led_status(char* task_msg){
-	sprintf(task_msg, "\r\nLED Status: %d\r\n", (int)(GPIOD->IDR & GPIO_PIN_12));
+	sprintf(task_msg, "\r\nG LED : %d\tO LED : %d\tR LED : %d\tB LED : %d\r\n"
+			,(int)(GPIOD->IDR & GPIO_PIN_12)
+			,(int)(GPIOD->IDR & GPIO_PIN_13)
+			,(int)(GPIOD->IDR & GPIO_PIN_14)
+			,(int)(GPIOD->IDR & GPIO_PIN_15));
 	xQueueSend(xUARTPrintQueue, &task_msg, portMAX_DELAY );
 }
 void read_RTC(char* task_msg){
@@ -701,18 +727,38 @@ void BSP_PB_Init(){
 
 }
 
+char  toggle_on_msg[] = "\r\nOrange led toggle on:\t\t";
+char  toggle_off_msg[] = "\r\nOrange led toggle off:\t\t";
+
 void EXTI0_IRQHandler(void)
 {
 	portBASE_TYPE xHigherPriorityTaskWoken = pdFALSE;
 	// Test for line 13 pending interrupt
 	if ((EXTI->PR & EXTI_PR_PR0_Msk) != 0)
 	{
-
+		char * pData = &menu[0];
+		char * pDataStart = &toggle_on_msg[0];
+		char * pDataStop = &toggle_off_msg[0];
 		// Clear pending bit 13 by writing a '1'
 		EXTI->PR |= EXTI_PR_PR0;
-
+		if( IsOrangeTimerActive )
+		{
+			xTimerStopFromISR(OrangeledTimerHandle, &xHigherPriorityTaskWoken); // waiting for timer queue available for portMAX_DELAY
+			IsOrangeTimerActive = 0; pb_toggle_count++;
+			xQueueSendFromISR(xUARTPrintQueue, &pDataStop, &xHigherPriorityTaskWoken);
+		}
+		else
+		{
+			xTimerStartFromISR(OrangeledTimerHandle, &xHigherPriorityTaskWoken); // waiting for timer queue available for portMAX_DELAY
+			IsOrangeTimerActive = 1; pb_toggle_count++;
+			xQueueSendFromISR(xUARTPrintQueue, &pDataStart, &xHigherPriorityTaskWoken);
+		}
+		if(pb_toggle_count> 8){
+			xQueueSendFromISR(xUARTPrintQueue, &pData, &xHigherPriorityTaskWoken);
+			pb_toggle_count = 0;
+		}
 		// Release the semaphore
-		xSemaphoreGiveFromISR(xSem, &xHigherPriorityTaskWoken);
+		//xSemaphoreGiveFromISR(xSem, &xHigherPriorityTaskWoken);
 
 		// Perform a context switch to the waiting task
 		portEND_SWITCHING_ISR( xHigherPriorityTaskWoken );
@@ -819,7 +865,6 @@ void USART2_IRQHandler(void){
 			command_len = 0;
 
 			xTaskNotifyFromISR(tCMD_H_Handle,0x00,eNoAction, &pxHigherPriorityTaskWoken);
-
 			xTaskNotifyFromISR(tDISP_MenuTaskHandle,0x02,eSetBits, &pxHigherPriorityTaskWoken);
 		}
 
