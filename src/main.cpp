@@ -609,10 +609,13 @@ static void vTask_Command_handling(void *pvParameters ){
 
 	while(1){
 		xTaskNotifyWait(ulBitsToClearOnEntry,ulBitsToClearOnExit,&pulNotificationValue, portMAX_DELAY);
-		cmd_code = getCommandCode(command_buffer);
 		new_cmd = (CMD_t*)pvPortMalloc(sizeof(CMD_t));
+
+		taskENTER_CRITICAL();
+		cmd_code = getCommandCode(command_buffer);
 		new_cmd->CMD_NO = cmd_code;
 		getArguments(new_cmd->CMD_ARGS);
+		taskEXIT_CRITICAL();
 
 		xQueueSend(xCommandQueue, &new_cmd, portMAX_DELAY);
 
