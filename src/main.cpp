@@ -252,7 +252,7 @@ char menu[] = {"\
 };
 
 uint8_t getCommandCode(uint8_t* buffer);
-void getArguments(uint8_t* arg);
+void getArguments(uint8_t* arg, CMD_t* new_cmd);
 void blue_led_toggle(TimerHandle_t xTimer);
 void red_led_toggle(TimerHandle_t xTimer);
 void orange_led_toggle(TimerHandle_t xTimer);
@@ -532,7 +532,6 @@ void vTaskConsole (void *pvParameters)
 		xQueueReceive(xConsoleQueue, &message, portMAX_DELAY);
 
 		// Send message to console
-		//my_printf((const char *)message);
 		m = *message;
 		while (m && *m){
 				while ( __HAL_UART_GET_FLAG (&huart2 , UART_FLAG_TXE ) == RESET);
@@ -547,34 +546,19 @@ static void vTask_Menu_display(void *pvParameters ){
 
 	char * pData = &menu[0];
 	 uint32_t pulNotificationValue  = 0x02;
-	 uint32_t ulBitsToClearOnEntry = 0, ulBitsToClearOnExitRXNIE = 0x01,  ulBitsToClearOnExitPrintMenu = 0x02; //, ulBitsToClearOnExitALL = 0xFFFFFFFF;
+	 uint32_t ulBitsToClearOnEntry = 0x00, ulBitsToClearOnExit = 0x00;//, ulBitsToClearOnExitRXNIE = 0x01,  ulBitsToClearOnExitPrintMenu = 0x02; //, ulBitsToClearOnExitALL = 0xFFFFFFFF;
 
 	while(1){
-		//send data to print manager and if it is full wait indefinitely
-		//wait until print manage finishes and let it get more values
-		//vTaskDelay(pdMS_TO_TICKS(5));
-		if( ( pulNotificationValue & ulBitsToClearOnExitRXNIE ) != 0 )
-		{
-			/* Bit 0 was set - process whichever event is represented by bit 0. */
-			if((huart2.Instance->CR1&USART_CR1_RXNEIE) != USART_CR1_RXNEIE)
-				SET_BIT(huart2.Instance->CR1, USART_CR1_RXNEIE);
-			//wait until print manager finish. two times processing for one order, why?
-			xTaskNotifyWait( ulBitsToClearOnEntry,  ulBitsToClearOnExitRXNIE, &pulNotificationValue, portMAX_DELAY);
-		}
-		if( ( pulNotificationValue & ulBitsToClearOnExitPrintMenu ) != 0 )
-		{
-			/* Bit 0 was set - process whichever event is represented by bit 0. */
-			pb_toggle_count = 0; //from EXTI0 toogle
-			xQueueSend(xUARTPrintQueue, &pData, portMAX_DELAY);
-			//wait until display manager wakes up this task and send data again( one line above ).
-			xTaskNotifyWait( ulBitsToClearOnEntry,  ulBitsToClearOnExitPrintMenu, &pulNotificationValue, portMAX_DELAY);
-		}
+		pb_toggle_count = 0; //from EXTI0 toggle
+		xQueueSend(xUARTPrintQueue, &pData, portMAX_DELAY);
+		//wait until display manager wakes up this task and send data again( one line above ).
+		xTaskNotifyWait( ulBitsToClearOnEntry,  ulBitsToClearOnExit, &pulNotificationValue, portMAX_DELAY);
 	}
 }
 
 static void prvUARTStdioGatekeeperTask( void *pvParameters )
 {
-
+	portBASE_TYPE	xStatus;
 	char * pcUARTMessageToPrint = NULL;
 
 	/* This is the only task that is allowed to write to the terminal output.
@@ -585,30 +569,54 @@ static void prvUARTStdioGatekeeperTask( void *pvParameters )
 	for( ;; )
 	{
 		/* Wait for a message to arrive. */
-		xQueueReceive( xUARTPrintQueue, &pcUARTMessageToPrint, portMAX_DELAY );
-		if((huart2.Instance->CR1&USART_CR1_RXNEIE) == USART_CR1_RXNEIE)
-		CLEAR_BIT(huart2.Instance->CR1, USART_CR1_RXNEIE);
-		/* There is no need to check the return	value as the task will block
-		indefinitely and only run again when a message has arrived.  When the
-		next line is executed there will be a message to be output. */
-		//trace_printf( "%s\n",*pcUARTMessageToPrint );
-		//	vTracePrint(ue3, "UART");
-		for(uint32_t i = 0; i < strlen(pcUARTMessageToPrint); i++){
-			while ( __HAL_UART_GET_FLAG (&huart2 , UART_FLAG_TXE ) == RESET);
-			USART2 ->DR = pcUARTMessageToPrint[i] & 0xFF;
+		xStatus = xQueueReceive( xUARTPrintQueue, &pcUARTMessageToPrint, portMAX_DELAY );
+		if (xStatus == pdPASS){
+			HAL_UART_Transmit_IT(&huart2, (uint8_t *)pcUARTMessageToPrint, (uint16_t) strlen(pcUARTMessageToPrint));
+			xSemaphoreTake( xSem, ( TickType_t ) portMAX_DELAY );
 		}
-
-		while ( __HAL_UART_GET_FLAG (&huart2 , UART_FLAG_TC ) == RESET);
-		/* Now simply go back to wait for the next message. */
-		xTaskNotify(tDISP_MenuTaskHandle,0x01,eSetBits);
-
 	}
+}
+
+char temp_usart_rx_buffer;
+char * bufferP = &temp_usart_rx_buffer;
+
+void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart){
+	portBASE_TYPE xHigherPriorityTaskWoken = pdFALSE;
+
+	if(huart->Instance == USART2){
+		// Release the semaphore
+		xSemaphoreGiveFromISR(xSem, &xHigherPriorityTaskWoken);
+
+		HAL_UART_Receive_IT(&huart2, (uint8_t *)bufferP, (uint16_t)1);
+
+		portEND_SWITCHING_ISR( xHigherPriorityTaskWoken );
+	}
+}
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+	BaseType_t pxHigherPriorityTaskWoken = pdFALSE;
+
+	command_buffer[command_len++] = *bufferP;// & 0xFF);
+
+	if(*bufferP == '\r') //user finished entering data
+	{
+		command_len = 0;
+		*bufferP = 0;
+		xTaskNotifyFromISR(tCMD_H_Handle,0x00,eNoAction, &pxHigherPriorityTaskWoken);
+		xTaskNotifyFromISR(tDISP_MenuTaskHandle,0x00,eNoAction, &pxHigherPriorityTaskWoken);
+	}
+	else{
+		HAL_UART_Receive_IT(&huart2, (uint8_t *)bufferP, (uint16_t)1);
+	}
+	//if higher priority task woke up after interrupt handler executed, yield to the higher pririty task
+	if(pxHigherPriorityTaskWoken == pdTRUE) taskYIELD();
 }
 static void vTask_Command_handling(void *pvParameters ){
     uint8_t cmd_code = 0;
     CMD_t * new_cmd;
-	 uint32_t ulBitsToClearOnExit = 0, ulBitsToClearOnEntry = 0;
-	 uint32_t pulNotificationValue  = 0x00;
+	uint32_t ulBitsToClearOnExit = 0, ulBitsToClearOnEntry = 0;
+	uint32_t pulNotificationValue  = 0x00;
 
 	while(1){
 		xTaskNotifyWait(ulBitsToClearOnEntry,ulBitsToClearOnExit,&pulNotificationValue, portMAX_DELAY);
@@ -617,11 +625,10 @@ static void vTask_Command_handling(void *pvParameters ){
 		taskENTER_CRITICAL();
 		cmd_code = getCommandCode(command_buffer);
 		new_cmd->CMD_NO = cmd_code;
-		getArguments(new_cmd->CMD_ARGS);
+		getArguments(new_cmd->CMD_ARGS, new_cmd);
 		taskEXIT_CRITICAL();
 
 		xQueueSend(xCommandQueue, &new_cmd, portMAX_DELAY);
-
 	}
 }
 
@@ -629,8 +636,10 @@ uint8_t getCommandCode(uint8_t* buffer){
 	return buffer[0] - 48;
 }
 
-void getArguments(uint8_t* arg){
-
+void getArguments(uint8_t* arg, CMD_t* new_cmd){
+	for(uint32_t i = 0; i < strlen((const char*)arg); i++){
+		new_cmd->CMD_ARGS[i-1]= arg[i];
+	}
 }
 
 static void vTask_Command_Processing(void *pvParameters ){
@@ -707,9 +716,6 @@ void read_RTC(char *task_msg)
 	//read time and date from RTC peripheral of the microcontroller
 	HAL_RTC_GetTime(&hrtc,&RTC_time,RTC_FORMAT_BIN);
 	HAL_RTC_GetDate(&hrtc,&RTC_date,RTC_FORMAT_BIN);
-//	RTC_GetTime(RTC_Format_BIN, &RTC_time);
-//	RTC_GetDate(RTC_Format_BIN, &RTC_date);
-
 	sprintf(task_msg,"\r\nTime: %02d:%02d:%02d \r\n Date : %02d-%2d-%2d \r\n",RTC_time.Hours,RTC_time.Minutes,RTC_time.Seconds,RTC_date.Date,RTC_date.Month,RTC_date.Year );
 	xQueueSend(xUARTPrintQueue,&task_msg,portMAX_DELAY);
 }
@@ -776,9 +782,6 @@ void EXTI0_IRQHandler(void)
 			xQueueSendFromISR(xUARTPrintQueue, &pData, &xHigherPriorityTaskWoken);
 			pb_toggle_count = 0;
 		}
-		// Release the semaphore
-		//xSemaphoreGiveFromISR(xSem, &xHigherPriorityTaskWoken);
-
 		// Perform a context switch to the waiting task
 		portEND_SWITCHING_ISR( xHigherPriorityTaskWoken );
 	}
@@ -885,8 +888,8 @@ static void MX_RTC_Init(void)
 
   /**Initialize RTC and set the Time and Date*/
 
-  sTime.Hours = 0x18;
-  sTime.Minutes = 0x10;
+  sTime.Hours = 0x22;
+  sTime.Minutes = 0x25;
   sTime.Seconds = 0x0;
   sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
   sTime.StoreOperation = RTC_STOREOPERATION_RESET;
@@ -936,7 +939,20 @@ static void MX_USART2_UART_Init(void)
   /* USER CODE END USART2_Init 2 */
 
 }
+/**
+  * @brief This function handles USART2 global interrupt.
+  */
+void USART2_IRQHandler(void)
+{
+  /* USER CODE BEGIN USART2_IRQn 0 */
 
+  /* USER CODE END USART2_IRQn 0 */
+  HAL_UART_IRQHandler(&huart2);
+  /* USER CODE BEGIN USART2_IRQn 1 */
+
+  /* USER CODE END USART2_IRQn 1 */
+}
+/*
 void USART2_IRQHandler(void){
 
 	BaseType_t pxHigherPriorityTaskWoken = pdFALSE;
@@ -959,7 +975,7 @@ void USART2_IRQHandler(void){
 	//if higher priority task woke up after interrupt handler executed, yield to the higher pririty task
 	if(pxHigherPriorityTaskWoken == pdTRUE) taskYIELD();
 }
-
+*/
 static void Error_Handler(void)
 {
   /* Turn LED5 on */
