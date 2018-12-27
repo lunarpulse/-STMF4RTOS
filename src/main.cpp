@@ -37,6 +37,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "semphr.h"
+#include "timers.h"
 #include "stm32f4xx_hal_usart.h"
 
 // ----------------------------------------------------------------------------
@@ -203,7 +204,7 @@ static const xData xStructsToSend[ 4 ] =
 xQueueHandle	xConsoleQueue = NULL;
 xQueueHandle xUARTPrintQueue = NULL;
 xQueueHandle	xCommandQueue = NULL;
-
+TimerHandle_t ledTimerHandle = NULL;
 TaskHandle_t tDISP_MenuTaskHandle;
 TaskHandle_t tCMD_H_Handle;
 TaskHandle_t tCMD_P_Handle;
@@ -244,6 +245,7 @@ char menu[] = {"\
 
 uint8_t getCommandCode(uint8_t* buffer);
 void getArguments(uint8_t* arg);
+void led_toggle(TimerHandle_t xTimer);
 void led_start_toggle(void);
 void led_stop_toggle(void);
 void read_led_status(char*);
@@ -648,11 +650,16 @@ static void vTask_Command_Processing(void *pvParameters ){
 	}
 }
 
+void led_toggle(TimerHandle_t xTimer){
+	blinkLeds[0].toggle();
+}
 void led_start_toggle(void){
 
+	ledTimerHandle = xTimerCreate( "LEDTGTimer", pdMS_TO_TICKS(250),pdTRUE,NULL,led_toggle);
+	xTimerStart(ledTimerHandle, portMAX_DELAY); // waiting for timer queue available for portMAX_DELAY
 }
 void led_stop_toggle(void){
-
+	xTimerStop(ledTimerHandle, portMAX_DELAY);
 }
 void read_led_status(char* task_msg){
 	sprintf(task_msg, "\r\nLED Status: %d\r\n", (int)(GPIOD->IDR & GPIO_PIN_12));
