@@ -528,15 +528,28 @@ void vTaskConsole (void *pvParameters)
 static void vTask_Menu_display(void *pvParameters ){
 
 	char * pData = &menu[0];
-	 uint32_t *pulNotificationValue  = NULL;
-	 uint32_t ulBitsToClearOnExit = 0, ulBitsToClearOnEntry = 0;
+	 uint32_t pulNotificationValue  = 0x02;
+	 uint32_t ulBitsToClearOnEntry = 0, ulBitsToClearOnExitRXNIE = 0x01,  ulBitsToClearOnExitPrintMenu = 0x02; //, ulBitsToClearOnExitALL = 0xFFFFFFFF;
+
 	while(1){
 		//send data to print manager and if it is full wait indefinitely
-		xQueueSend(xUARTPrintQueue, &pData, portMAX_DELAY);
-//		SET_BIT(huart2.Instance->CR1, USART_CR1_RXNEIE);
-
-		//wait until display manager wakes up this task and send data again( one line above ).
-		xTaskNotifyWait( ulBitsToClearOnEntry,  ulBitsToClearOnExit, pulNotificationValue, portMAX_DELAY);
+		//wait until print manage finishes and let it get more values
+		//vTaskDelay(pdMS_TO_TICKS(5));
+		if( ( pulNotificationValue & ulBitsToClearOnExitRXNIE ) != 0 )
+		{
+			/* Bit 0 was set - process whichever event is represented by bit 0. */
+			if((huart2.Instance->CR1&USART_CR1_RXNEIE) != USART_CR1_RXNEIE)
+				SET_BIT(huart2.Instance->CR1, USART_CR1_RXNEIE);
+			//wait until print manager finish. two times processing for one order, why?
+			xTaskNotifyWait( ulBitsToClearOnEntry,  ulBitsToClearOnExitRXNIE, &pulNotificationValue, portMAX_DELAY);
+		}
+		if( ( pulNotificationValue & ulBitsToClearOnExitPrintMenu ) != 0 )
+		{
+			/* Bit 0 was set - process whichever event is represented by bit 0. */
+			xQueueSend(xUARTPrintQueue, &pData, portMAX_DELAY);
+			//wait until display manager wakes up this task and send data again( one line above ).
+			xTaskNotifyWait( ulBitsToClearOnEntry,  ulBitsToClearOnExitPrintMenu, &pulNotificationValue, portMAX_DELAY);
+		}
 	}
 }
 
@@ -554,7 +567,8 @@ static void prvUARTStdioGatekeeperTask( void *pvParameters )
 	{
 		/* Wait for a message to arrive. */
 		xQueueReceive( xUARTPrintQueue, &pcUARTMessageToPrint, portMAX_DELAY );
-
+		if((huart2.Instance->CR1&USART_CR1_RXNEIE) == USART_CR1_RXNEIE)
+		CLEAR_BIT(huart2.Instance->CR1, USART_CR1_RXNEIE);
 		/* There is no need to check the return	value as the task will block
 		indefinitely and only run again when a message has arrived.  When the
 		next line is executed there will be a message to be output. */
@@ -567,18 +581,18 @@ static void prvUARTStdioGatekeeperTask( void *pvParameters )
 
 		while ( __HAL_UART_GET_FLAG (&huart2 , UART_FLAG_TC ) == RESET);
 		/* Now simply go back to wait for the next message. */
-		//CLEAR_BIT(huart2.Instance->CR1, USART_CR1_RXNEIE);
-		HAL_UART_Receive_IT(&huart2, (uint8_t *)&usart_temp_buffer, (uint16_t) 1);
+		xTaskNotify(tDISP_MenuTaskHandle,0x01,eSetBits);
+
 	}
 }
 static void vTask_Command_handling(void *pvParameters ){
     uint8_t cmd_code = 0;
     CMD_t * new_cmd;
 	 uint32_t ulBitsToClearOnExit = 0, ulBitsToClearOnEntry = 0;
-	 uint32_t *pulNotificationValue  = NULL;
+	 uint32_t pulNotificationValue  = 0x00;
 
 	while(1){
-		xTaskNotifyWait(ulBitsToClearOnEntry,ulBitsToClearOnExit,pulNotificationValue, portMAX_DELAY);
+		xTaskNotifyWait(ulBitsToClearOnEntry,ulBitsToClearOnExit,&pulNotificationValue, portMAX_DELAY);
 		cmd_code = getCommandCode(command_buffer);
 		new_cmd = (CMD_t*)pvPortMalloc(sizeof(CMD_t));
 		new_cmd->CMD_NO = cmd_code;
@@ -799,7 +813,7 @@ void USART2_IRQHandler(void){
 
 			xTaskNotifyFromISR(tCMD_H_Handle,0x00,eNoAction, &pxHigherPriorityTaskWoken);
 
-			xTaskNotifyFromISR(tDISP_MenuTaskHandle,0x00,eNoAction, &pxHigherPriorityTaskWoken);
+			xTaskNotifyFromISR(tDISP_MenuTaskHandle,0x02,eSetBits, &pxHigherPriorityTaskWoken);
 		}
 
 	}
