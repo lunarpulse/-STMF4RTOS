@@ -111,6 +111,14 @@ void HAL_PPP_MspDeInit(void)
 {
 
 }
+
+HAL_EXTI0_MspDeInit(void){
+	__HAL_RCC_GPIOA_CLK_DISABLE();
+	HAL_GPIO_DeInit(GPIOA, GPIO_PIN_0);
+	HAL_NVIC_DisableIRQ(EXTI0_IRQn);
+}
+
+
 /**
 * @brief UART MSP Initialization
 * This function configures the hardware resources used in this example

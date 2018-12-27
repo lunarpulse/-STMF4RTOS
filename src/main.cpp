@@ -168,7 +168,7 @@ static void prvUARTStdioGatekeeperTask( void *pvParameters );
 void BSP_PB_Init();
 extern "C" void EXTI0_IRQHandler(void);
 extern "C" void USART2_IRQHandler(void);
-
+extern "C" void HAL_EXTI0_MspDeInit(void);
 SemaphoreHandle_t xSemaphore = NULL;
 xSemaphoreHandle xSem;
 
@@ -223,6 +223,7 @@ static void MX_RTC_Init();
 static void Error_Handler(void);
 void SystemClock_Config(void);
 void os_Delay(uint32_t delay_in_ms);
+extern "C" void vApplicationIdleHook( void );
 
 RTC_HandleTypeDef hrtc;
 
@@ -235,8 +236,11 @@ typedef struct App_CMD{
 	uint8_t CMD_NO;
 	uint8_t CMD_ARGS[10];
 } CMD_t;
+
+#define CMD_BUFFER_LEN 	20
+
 uint8_t command_len = 0;
-uint8_t command_buffer[20]= {0,};
+uint8_t command_buffer[CMD_BUFFER_LEN]= {0,};
 typedef enum ENUM_CMD{
 	NO_ACTION,LED_ON,LED_OFF,LED_TOGGLE,LED_TOGGLE_OFF,LED_STATUS,RTC_PRINT_DATETIME,EXIT_APP
 } cmd_e;
@@ -257,7 +261,7 @@ void blue_led_toggle(TimerHandle_t xTimer);
 void red_led_toggle(TimerHandle_t xTimer);
 void orange_led_toggle(TimerHandle_t xTimer);
 void green_led_toggle(TimerHandle_t xTimer);
-
+volatile int exited= 0;
 void led_start_toggle(void);
 void led_stop_toggle(void);
 void read_led_status(char*);
@@ -601,6 +605,10 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 
 	if(*bufferP == '\r') //user finished entering data
 	{
+		for(uint32_t i = command_len; i < CMD_BUFFER_LEN; i++){
+			command_buffer[i]= 0;
+		}
+
 		command_len = 0;
 		*bufferP = 0;
 		xTaskNotifyFromISR(tCMD_H_Handle,0x00,eNoAction, &pxHigherPriorityTaskWoken);
@@ -625,7 +633,7 @@ static void vTask_Command_handling(void *pvParameters ){
 		taskENTER_CRITICAL();
 		cmd_code = getCommandCode(command_buffer);
 		new_cmd->CMD_NO = cmd_code;
-		getArguments(new_cmd->CMD_ARGS, new_cmd);
+		getArguments(&command_buffer[0], new_cmd);
 		taskEXIT_CRITICAL();
 
 		xQueueSend(xCommandQueue, &new_cmd, portMAX_DELAY);
@@ -637,8 +645,8 @@ uint8_t getCommandCode(uint8_t* buffer){
 }
 
 void getArguments(uint8_t* arg, CMD_t* new_cmd){
-	for(uint32_t i = 0; i < strlen((const char*)arg); i++){
-		new_cmd->CMD_ARGS[i-1]= arg[i];
+	for(uint32_t i = 0; i < 10; i++){
+		new_cmd->CMD_ARGS[i]= arg[i+1];
 	}
 }
 
@@ -721,6 +729,47 @@ void read_RTC(char *task_msg)
 }
 void Exit_APP(void){
 
+	HAL_EXTI0_MspDeInit();
+
+	HAL_UART_MspDeInit(&huart2);
+	HAL_RTC_MspDeInit(&hrtc);
+
+	for (size_t i = 0; i < (sizeof(blinkLeds) / sizeof(blinkLeds[0])); ++i)
+	{
+		blinkLeds[i].turnOff ();
+	}
+//delete all tasks
+	xTimerDelete(GreenledTimerHandle, pdMS_TO_TICKS(20));
+	xTimerDelete(OrangeledTimerHandle, pdMS_TO_TICKS(20));
+
+    //if( tDISP_MenuTaskHandle != NULL )
+    //{
+        vTaskDelete( tDISP_MenuTaskHandle );
+    //}
+    //if( tCMD_H_Handle != NULL )
+	//{
+		vTaskDelete( tCMD_H_Handle );
+	//}
+    //if( tUARTGatekeeperHandle != NULL )
+	//{
+		vTaskDelete( tUARTGatekeeperHandle );
+	//}
+    //if( tCMD_P_Handle != NULL )
+	//{
+		exited = 1;
+
+		vTaskDelete( tCMD_P_Handle );
+	//}
+
+	//all interrupts diable
+	/* Disable RXNE, PE and ERR interrupts */
+	//CLEAR_BIT(huart2.Instance->CR1, (USART_CR1_RXNEIE | USART_CR1_PEIE));
+	//CLEAR_BIT(huart2.Instance->CR3, USART_CR3_EIE);
+	/* Disable TXEIE and TCIE interrupts */
+	//CLEAR_BIT(huart2.Instance->CR1, (USART_CR1_TXEIE | USART_CR1_TCIE));
+
+
+//sleep mode in idle hook
 }
 void print_error_msg(char* task_msg){
 	sprintf(task_msg, "\r\nError: Invalid Command Received\r\n");
@@ -888,8 +937,8 @@ static void MX_RTC_Init(void)
 
   /**Initialize RTC and set the Time and Date*/
 
-  sTime.Hours = 0x22;
-  sTime.Minutes = 0x25;
+  sTime.Hours = 0x23;
+  sTime.Minutes = 0x58;
   sTime.Seconds = 0x0;
   sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
   sTime.StoreOperation = RTC_STOREOPERATION_RESET;
@@ -1005,7 +1054,8 @@ void vApplicationStackOverflowHook( xTaskHandle *pxTask, signed char *pcTaskName
 
 void vApplicationIdleHook( void )
 {
-	/* This example does not use the idle hook to perform any processing. */
+	if(exited)
+	HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFE);
 }
 /*-----------------------------------------------------------*/
 #pragma GCC diagnostic pop
